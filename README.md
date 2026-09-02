@@ -263,7 +263,7 @@ All demo users share the password `Password123!`.
 
 ## Git Workflow
 
-`main` is the integrated, production-oriented development branch. Savan (backend/integration owner) commits backend work directly to `main`; six frontend engineers work on their assigned branches and merge into `main` via Pull Requests.
+`main` is the integrated, production-oriented development branch. **Savan Patel** (repository owner / backend & integration) commits backend work directly to `main`; six frontend engineers work on their assigned branches and merge into `main` via Pull Requests.
 
 ```
 main
@@ -274,6 +274,8 @@ main
 ├── frontend/fraud-tampering
 └── frontend/explorer-simulation
 ```
+
+Frontend contributors hold **Write access only to this repository** (least privilege). They do not have access to `securex-blockchain`, `securex-fraud-engine`, or other private SecureX repositories unless Savan explicitly assigns them.
 
 ### Branch ownership
 
@@ -286,7 +288,9 @@ main
 | `frontend/fraud-tampering` | Security/AI Engineer 2 | Fraud/risk, tampering, fingerprint frontend |
 | `frontend/explorer-simulation` | Security/AI Engineer 3 | Blockchain Explorer + Attack Simulation frontend |
 
-All six branches originate from the verified V1 foundation commit (`889c300`). Work in progress stays on the team's branch until ready. See `CONTRIBUTING.md` for the complete governance and workflow.
+The Security/AI engineers implement **frontend UI only**; the underlying fraud, AI, tampering, fingerprint, blockchain, and attack-simulation logic is Savan's backend work.
+
+All six branches originate from the verified V1 foundation commit (`889c300`). Work in progress stays on the team's branch until ready. Frontend PRs are reviewed and merged by Savan. See `CONTRIBUTING.md` for the complete governance and workflow.
 
 ## Architecture Notes
 

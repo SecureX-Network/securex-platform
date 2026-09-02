@@ -2,7 +2,26 @@
 
 Thank you for your interest in contributing to **SecureX** — the Blockchain-Powered Digital Credential Trust Network.
 
-This guide defines the team governance, branch ownership, and contribution workflow for the SecureX Platform repository.
+This guide defines the repository governance, access model, branch ownership, and contribution workflow for the SecureX Platform repository.
+
+## Repository Ownership
+
+**Savan Patel** is the sole repository administrator and backend owner of `SecureX-Network/securex-platform`.
+
+Savan is responsible for:
+
+- Backend development
+- API integration
+- Authentication backend
+- Database integration
+- Blockchain integration
+- Fraud-engine integration
+- Security backend
+- Platform architecture
+- Production configuration
+- Secrets and environment configuration
+- Pull-request approval and merging
+- `main` branch management
 
 ## Repository Purpose
 
@@ -14,7 +33,7 @@ The application code is a **completed-and-verified V1 foundation**. This reposit
 
 SecureX has 7 developers with clearly separated responsibilities.
 
-### Savan — Team Lead / Backend / Integration Owner
+### Savan — Repository Owner / Backend / Integration Owner
 
 Savan owns **all backend and integration work**:
 
@@ -33,14 +52,33 @@ Savan owns **all backend and integration work**:
 - Network backend
 - API contracts
 - Production configuration
+- Secrets and environment configuration
 - Frontend/backend integration
+- Pull-request approval and merging
 - Final integration into `main`
 
-**Savan may commit directly to `main`.**
+**Savan may commit directly to `main`.** Savan is the only repository administrator with Owner/Admin access.
 
 ### Six Frontend Engineers
 
-The other six developers are **frontend-only**. They must **NOT** independently create:
+The other six developers are **frontend-only**. They receive **Write access ONLY to `securex-platform`**. They must **NOT** receive access to:
+
+- `securex-blockchain`
+- `securex-fraud-engine`
+- Any other private SecureX repository unless explicitly required later
+
+Write access to `securex-platform` is sufficient for:
+
+- Clone / pull
+- Create local branches
+- Push assigned branches
+- Open Pull Requests
+- Review frontend code
+- Run tests / builds locally
+
+They do **not** need Admin, Maintain, or Owner access.
+
+Frontend engineers must **NOT** independently create:
 
 - Backend servers or databases
 - Blockchain implementations
@@ -70,16 +108,74 @@ main
 
 ### Branch Ownership
 
-| Engineer | Branch | Owns (frontend UI) |
-| --- | --- | --- |
-| **Engineer 1** | `frontend/public-verification` | SecureX public website, About, How it works, Contact, Credential verification, Credential ID verification, QR verification UI, verification result UI, credential details, issuer information, credential status, blockchain proof display |
-| **Engineer 2** | `frontend/institution-employer` | Institution dashboard, institution credential management, credential issuance UI, bulk issuance UI, issuer management, credential templates, institution audit UI, employer dashboard, employer verification, employer history, employer settings |
-| **Engineer 3** | `frontend/holder-admin` | Holder/student wallet, holder dashboard, credential cards, credential details, credential sharing, QR display, notifications, holder settings, Super Admin dashboard, institution management UI, user management UI, issuer management UI, credential administration UI, admin security UI, admin audit UI, admin settings |
-| **Security/AI Engineer 1** | `frontend/security-center` | Security Center: security dashboard, security alerts, security events, risk overview, suspicious activity UI, threat indicators, security status, security visualizations |
-| **Security/AI Engineer 2** | `frontend/fraud-tampering` | Fraud dashboard, fraud/risk UI, suspicious credential UI, risk score visualization, risk explanation UI, document tampering results, credential fingerprint results, fraud history, security warnings |
-| **Security/AI Engineer 3** | `frontend/explorer-simulation` | Blockchain Explorer, block list, block details, transaction list, transaction details, validator/network status, network security visualization, Attack Simulation UI, security event visualization |
+Primary routes are listed under each engineer's scope.
 
-> **Note on "Security/AI" role naming:** Engineers 4, 5, and 6 are called Security/AI engineers for project-role purposes, but their **implementation responsibility in this repository is FRONTEND UI only**. The actual fraud, AI, tampering, fingerprint, blockchain, and attack-simulation logic is implemented by **Savan on the backend**.
+| Engineer | Branch | Owns (frontend UI) | Primary routes |
+| --- | --- | --- | --- |
+| **Engineer 1** | `frontend/public-verification` | Public website, About, How It Works, Contact, credential verification, QR verification UI, verification results, credential details, issuer information, credential status, blockchain proof display | `/`, `/about`, `/how-it-works`, `/contact`, `/verify`, `/verify/:credentialId` |
+| **Engineer 2** | `frontend/institution-employer` | Institution dashboard, credential management, credential issuance UI, bulk issuance UI, issuer management, credential templates, institution audit UI, employer dashboard, employer verification, verification history | `/institution/*`, `/employer/*` |
+| **Engineer 3** | `frontend/holder-admin` | Digital credential wallet, holder dashboard, credential details, credential sharing, QR display, notifications, holder settings, Admin dashboard, institution administration, user administration, security administration UI | `/holder/*`, `/admin/*` |
+| **Security/AI Engineer 1** | `frontend/security-center` | Security Center: security dashboard, security alerts, security events, risk overview, suspicious activity UI, threat indicators, security status, security visualizations | `frontend/security-center` scope |
+| **Security/AI Engineer 2** | `frontend/fraud-tampering` | Fraud dashboard, fraud/risk UI, suspicious credential UI, risk score visualization, risk explanation UI, document tampering results, credential fingerprint results, fraud history, security warnings | `frontend/fraud-tampering` scope |
+| **Security/AI Engineer 3** | `frontend/explorer-simulation` | Blockchain Explorer, block list, block details, transaction list, transaction details, validator/network status, network security visualization, Attack Simulation UI, security event visualization | `frontend/explorer-simulation` scope |
+
+> **Note on "Security/AI" role naming:** Engineers 4, 5, and 6 are called Security/AI engineers for project-role purposes, but their **implementation responsibility in this repository is FRONTEND UI only**. The actual fraud, AI, tampering, fingerprint, blockchain, and attack-simulation logic is implemented by **Savan on the backend** and belongs in the appropriate backend repositories.
+
+## Repository Boundaries
+
+SecureX is split across separate repositories by responsibility. **One repository, one responsibility.**
+
+| Repository | Purpose | Who works here |
+| --- | --- | --- |
+| `securex-platform` | Frontend + platform integration (this repository) | All frontend engineers + Savan (backend/integration) |
+| `securex-blockchain` | SecureX custom permissioned blockchain and cryptographic trust infrastructure | Savan / backend |
+| `securex-fraud-engine` | Fraud detection, risk analysis, tampering detection, fingerprinting and security intelligence | Savan / backend |
+| `securex-docs` | Master documentation, architecture, presentations and project documentation | Savan / team |
+
+Team members should only receive access to repositories required for their assigned responsibilities.
+
+## Security Principle
+
+Use **least privilege**.
+
+A frontend engineer needs:
+
+- `securex-platform` → **Write**
+
+They do **not** need:
+
+- `securex-blockchain` → No access
+- `securex-fraud-engine` → No access
+
+...unless Savan explicitly changes their responsibility.
+
+```
+                    Savan Patel
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+        Backend / Core         Platform Owner
+              │                     │
+      ┌───────┴────────┐            │
+      │                │            │
+ Blockchain       Fraud Engine      │
+      │                │            │
+      └────────────────┴────────────┘
+                       │
+                securex-platform
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+     Frontend       Frontend       Frontend
+      Team 1         Team 2         Team 3
+        │              │              │
+   Public/Verify  Institution/    Holder/Admin
+                  Employer
+```
+
+All frontend contributors are restricted to the platform repository from an organizational-access perspective.
+
+**Access rule:** Frontend developers build the product. Savan owns the infrastructure behind the product.
 
 ## Development Workflow
 
@@ -147,7 +243,19 @@ Use [Conventional Commits](https://www.conventionalcommits.org/)-style messages.
 
 ## Pull Request Rules
 
-Frontend engineers must use **Pull Requests** when merging into `main`.
+Every frontend PR should:
+
+- **Target `main`**
+- Clearly describe the UI changes
+- Include screenshots for significant UI changes
+- Pass TypeScript checks
+- Pass tests
+- Pass the production build
+- Avoid unrelated files
+- Avoid backend changes unless explicitly coordinated with Savan
+- Avoid secrets or credentials
+
+Savan performs the **final integration review** on every PR.
 
 Each PR should include:
 
@@ -185,7 +293,36 @@ If the conflict involves backend/API/shared architecture and you are unsure how 
 
 ## Main Branch Safety
 
-Frontend engineers must always merge into `main` via Pull Requests (see [Pull Request Rules](#pull-request-rules)); they do not push directly to `main`. Do not force push.
+`main` is the **stable integration branch**. Frontend contributors must not intentionally push directly to `main`.
+
+Frontend engineers must always merge into `main` via Pull Requests (see [Pull Request Rules](#pull-request-rules)). They do not push directly to `main`.
+
+**Expected workflow:**
+
+```
+git checkout assigned-branch
+        ↓
+Develop
+        ↓
+Run tests
+        ↓
+Commit
+        ↓
+Push assigned branch
+        ↓
+Open Pull Request
+        ↓
+Savan reviews
+        ↓
+Savan merges
+```
+
+**Never:**
+
+- Force push
+- Rewrite history
+- Amend shared commits
+- Make direct production changes
 
 **Recommended GitHub branch protection for `main`** (to be enabled once the GitHub plan permits repository rules — private repos on the GitHub Free plan do not support branch protection via API; enables the checkbox in the repository **Settings → Branches** page if available):
 
@@ -321,6 +458,32 @@ features/[feature-name]/
 | `constants/` | Route paths, navigation maps, role constants |
 | `hooks/` | Shared custom React hooks |
 | `utils/` | Pure utility functions (no React dependencies) |
+
+## Definition of Done
+
+A frontend feature is complete when:
+
+- UI is implemented
+- Responsive behavior is verified
+- Loading state exists where required
+- Empty state exists where required
+- Error state exists where required
+- Accessibility basics are handled
+- Mock/API boundary is preserved
+- Tests pass
+- Build passes
+- PR is pushed to the assigned branch
+- PR is reviewed and merged by Savan
+
+## Core Rule
+
+**One repository, one responsibility.**
+
+- Frontend developers work in: `securex-platform`
+- Blockchain engineers / backend work belongs to: `securex-blockchain`, `securex-fraud-engine`
+- Documentation belongs to: `securex-docs`
+
+This separation keeps SecureX modular, secure and manageable while allowing the six-person team to work in parallel.
 
 ## Questions
 
