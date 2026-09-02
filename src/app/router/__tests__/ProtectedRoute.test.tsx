@@ -62,4 +62,66 @@ describe('ProtectedRoute', () => {
     renderProtected(['ADMIN']);
     expect(await screen.findByText('Unauthorized Page')).toBeInTheDocument();
   });
+
+  it('allows a HOLDER user to access /holder routes', async () => {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(makeUser({ role: 'HOLDER' })));
+    window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
+    renderProtected(['HOLDER']);
+    expect(await screen.findByText('Protected content')).toBeInTheDocument();
+  });
+
+  it('denies a HOLDER user access to /admin and shows Unauthorized', async () => {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(makeUser({ role: 'HOLDER' })));
+    window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
+    renderProtected(['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']);
+    expect(await screen.findByText('Unauthorized Page')).toBeInTheDocument();
+  });
+
+  it('allows an ADMIN user to access /admin routes', async () => {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(makeUser({ role: 'ADMIN' })));
+    window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
+    renderProtected(['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']);
+    expect(await screen.findByText('Protected content')).toBeInTheDocument();
+  });
+
+  it('denies an ADMIN user access to /holder and shows Unauthorized', async () => {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(makeUser({ role: 'ADMIN' })));
+    window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
+    renderProtected(['HOLDER']);
+    expect(await screen.findByText('Unauthorized Page')).toBeInTheDocument();
+  });
+
+  it('redirects an unauthenticated user to /auth/login', async () => {
+    renderProtected(['HOLDER']);
+    expect(await screen.findByText('Login Page')).toBeInTheDocument();
+  });
+
+  it('treats a malformed stored session as unauthenticated and redirects to /auth/login', async () => {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ id: 'usr-001', name: 'No Role' }));
+    window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
+    renderProtected(['HOLDER']);
+    expect(await screen.findByText('Login Page')).toBeInTheDocument();
+    expect(window.localStorage.getItem(AUTH_USER_KEY)).toBeNull();
+  });
+
+  it('treats a role-less stored session as unauthenticated and redirects to /auth/login', async () => {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ id: 'usr-001', email: 'test@example.com', name: 'Test', createdAt: '2024-01-01T00:00:00Z' }));
+    window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
+    renderProtected(['HOLDER']);
+    expect(await screen.findByText('Login Page')).toBeInTheDocument();
+    expect(window.localStorage.getItem(AUTH_USER_KEY)).toBeNull();
+  });
+
+  it('treats an invalid role stored session as unauthenticated and redirects to /auth/login', async () => {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(makeUser({ role: 'FAKE_ROLE' as UserRole })));
+    window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
+    renderProtected(['HOLDER']);
+    expect(await screen.findByText('Login Page')).toBeInTheDocument();
+    expect(window.localStorage.getItem(AUTH_USER_KEY)).toBeNull();
+  });
+
+  it('treats a completely empty localStorage session as unauthenticated', async () => {
+    renderProtected(['ADMIN']);
+    expect(await screen.findByText('Login Page')).toBeInTheDocument();
+  });
 });
