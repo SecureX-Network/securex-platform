@@ -1,19 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Hash, Layers } from 'lucide-react';
-import { Button } from '@/components/ui';
-import { Table } from '@/components/ui';
-import { Pagination } from '@/components/ui';
-import { ErrorState } from '@/components/ui';
-import { getBlocks } from '@/services/api/blockchainService';
-import type { BlockchainBlock } from '@/types';
-import { formatDate, truncateHash } from '@/utils';
+import { EmptyState, ErrorState, Pagination, Table } from '@/components/ui';
+import { formatDate } from '@/utils';
 import { ExplorerLayout } from '../components/ExplorerLayout';
+import { HashDisplay } from '../components/HashDisplay';
+import { DataSourceBadge } from '../components/DataSourceBadge';
+import {
+  getDataSourceMode,
+  getExplorerBlocks,
+  type ExplorerBlockView,
+} from '../services/explorerService';
+
+const PAGE_SIZE = 10;
 
 export default function ExplorerBlocksPage() {
   const navigate = useNavigate();
+  const mode = getDataSourceMode();
   const [page, setPage] = useState(1);
-  const [blocks, setBlocks] = useState<BlockchainBlock[]>([]);
+  const [blocks, setBlocks] = useState<ExplorerBlockView[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -23,12 +28,12 @@ export default function ExplorerBlocksPage() {
     let active = true;
     setLoading(true);
     setError(null);
-    getBlocks(page)
+    getExplorerBlocks(page, PAGE_SIZE)
       .then((res) => {
         if (!active) return;
-        setBlocks(res.data);
+        setBlocks(res.blocks);
         setTotal(res.total);
-        setTotalPages(res.totalPages);
+        setTotalPages(Math.max(1, res.hasMore ? page + 1 : page));
       })
       .catch((e) => {
         if (active)
@@ -40,7 +45,7 @@ export default function ExplorerBlocksPage() {
     return () => {
       active = false;
     };
-  }, [page]);
+  }, [page, mode]);
 
   return (
     <ExplorerLayout>
@@ -55,10 +60,12 @@ export default function ExplorerBlocksPage() {
               Browse blocks produced on the SecureX Trust Network.
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => navigate('/explorer')}>
-            Overview
-          </Button>
+          <DataSourceBadge mode={mode} />
         </div>
+
+        {mode === 'DEMO' && (
+          <p className="text-xs text-slate-400">Showing demo block data.</p>
+        )}
 
         {error ? (
           <ErrorState
@@ -68,7 +75,7 @@ export default function ExplorerBlocksPage() {
           />
         ) : (
           <>
-            <Table<BlockchainBlock>
+            <Table<ExplorerBlockView>
               columns={[
                 {
                   key: 'height',
@@ -87,9 +94,7 @@ export default function ExplorerBlocksPage() {
                   key: 'hash',
                   header: 'Hash',
                   accessor: (b) => (
-                    <span className="font-mono text-xs text-slate-600">
-                      {truncateHash(b.hash, 12, 8)}
-                    </span>
+                    <HashDisplay value={b.hash} startChars={12} endChars={8} />
                   ),
                 },
                 {
@@ -109,9 +114,9 @@ export default function ExplorerBlocksPage() {
                     </span>
                   ),
                 },
-                { key: 'validator', header: 'Validator', accessor: (b) => b.validator },
+                { key: 'proposerId', header: 'Validator', accessor: (b) => shortenHash(b.proposerId) },
                 { key: 'transactionCount', header: 'Transactions', align: 'right', accessor: (b) => b.transactionCount },
-                { key: 'size', header: 'Size', align: 'right', accessor: (b) => `${(b.size / 1000).toFixed(1)} KB` },
+                { key: 'version', header: 'Version', align: 'right', accessor: (b) => b.version },
               ]}
               data={blocks}
               rowKey={(b) => String(b.height)}
@@ -120,17 +125,36 @@ export default function ExplorerBlocksPage() {
               defaultSortDirection="desc"
               ariaLabel="Blocks table"
               dense
+              emptyState={
+                <EmptyState
+                  compact
+                  icon={<Layers aria-hidden="true" className="h-6 w-6" />}
+                  title="No blocks found"
+                  description="There are no blocks recorded on this network yet."
+                />
+              }
               onRowClick={(b) => navigate(`/explorer/blocks/${b.height}`)}
             />
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-              showing={{ from: blocks.length ? (page - 1) * 10 + 1 : 0, to: (page - 1) * 10 + blocks.length, total }}
-            />
+            {(total !== 0 || blocks.length > 0) && (
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                showing={{
+                  from: blocks.length ? (page - 1) * PAGE_SIZE + 1 : 0,
+                  to: (page - 1) * PAGE_SIZE + blocks.length,
+                  total,
+                }}
+              />
+            )}
           </>
         )}
       </div>
     </ExplorerLayout>
   );
+}
+
+function shortenHash(hash: string): string {
+  if (!hash || hash.length <= 16) return hash;
+  return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
 }

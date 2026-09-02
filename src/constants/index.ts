@@ -1,7 +1,7 @@
 import type { CredentialStatus, UserRole } from '@/types';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api';
-export const BLOCKCHAIN_API_URL = import.meta.env.VITE_BLOCKCHAIN_API_URL ?? 'http://localhost:4001/blockchain';
+export const BLOCKCHAIN_API_URL = import.meta.env.VITE_BLOCKCHAIN_API_URL ?? 'http://localhost:3001';
 export const FRAUD_ENGINE_URL = import.meta.env.VITE_FRAUD_ENGINE_URL ?? 'http://localhost:4002/fraud';
 
 export const IS_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
