@@ -62,12 +62,19 @@ export default function AdminSecurityPage() {
         ? 'text-warning-600 border-warning-200 bg-warning-50'
         : 'text-danger-600 border-danger-200 bg-danger-50';
 
+  const scoreLabel =
+    score >= 80
+      ? 'Strong'
+      : score >= 60
+        ? 'Moderate'
+        : 'Needs attention';
+
   return (
     <div className="space-y-6">
       <section>
         <h1 className="text-2xl font-bold text-neutral-900">Security Center</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Fraud detection monitoring and threat intelligence. Demo data only.
+          Fraud detection monitoring and threat intelligence. <span className="font-medium text-neutral-700">Demo data only.</span>
         </p>
       </section>
 
@@ -79,7 +86,8 @@ export default function AdminSecurityPage() {
           >
             {score}
           </p>
-          <p className="text-xs text-neutral-500">
+          <p className="text-sm font-medium text-neutral-700">{scoreLabel}</p>
+          <p className="mt-1 text-xs text-neutral-500">
             Based on active alerts, severity, and open incidents.
           </p>
         </Card>
@@ -172,11 +180,11 @@ export default function AdminSecurityPage() {
                     {assessment.credentialId}
                   </p>
                   <p className="text-xs text-neutral-500">
-                    {assessment.method} · risk score {assessment.score}
+                    {assessment.method} \u00b7 risk score {assessment.score}
                   </p>
                   {assessment.flags.length > 0 && (
                     <p className="mt-1 text-xs text-neutral-600">
-                      {assessment.flags.join(' · ')}
+                      {assessment.flags.join(' \u00b7 ')}
                     </p>
                   )}
                 </div>

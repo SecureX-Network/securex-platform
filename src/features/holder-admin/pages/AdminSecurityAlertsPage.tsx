@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import {
   Badge,
+  Button,
   Input,
   Select,
   Table,
@@ -51,6 +52,18 @@ export default function AdminSecurityAlertsPage() {
       active = false;
     };
   }, []);
+
+  const counts = useMemo(() => {
+    const active = alerts.filter(
+      (a) => !['RESOLVED', 'DISMISSED'].includes(a.status),
+    ).length;
+    return {
+      ALL: alerts.length,
+      active,
+      NEW: alerts.filter((a) => a.status === 'NEW').length,
+      INVESTIGATING: alerts.filter((a) => a.status === 'INVESTIGATING').length,
+    };
+  }, [alerts]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -146,14 +159,16 @@ export default function AdminSecurityAlertsPage() {
       <section>
         <h1 className="text-2xl font-bold text-neutral-900">Security Alerts</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Triage security alerts from tamper attempts to brute-force attacks.
+          Triage security alerts from tamper attempts to brute-force attacks.{' '}
+          <span className="font-medium text-neutral-700">{counts.active} active</span>,{' '}
+          <span className="font-medium text-neutral-700">{counts.NEW} new</span>.
         </p>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search alerts…"
+          placeholder="Search alerts\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
@@ -231,9 +246,9 @@ export default function AdminSecurityAlertsPage() {
             </p>
             <p className="text-neutral-500">
               Status:{' '}
-              <span className="font-medium text-neutral-800">
+              <Badge variant={statusVariant[expandedAlert.status]}>
                 {expandedAlert.status}
-              </span>
+              </Badge>
             </p>
             <p className="text-neutral-500">
               Detected:{' '}
@@ -245,6 +260,14 @@ export default function AdminSecurityAlertsPage() {
           <p className="rounded-lg bg-neutral-50 p-4 text-sm leading-relaxed text-neutral-600">
             {expandedAlert.description}
           </p>
+          <div className="mt-4 flex gap-2">
+            <Button size="sm" variant="outline">
+              Acknowledge
+            </Button>
+            <Button size="sm" variant="outline">
+              Investigate
+            </Button>
+          </div>
         </div>
       )}
     </div>

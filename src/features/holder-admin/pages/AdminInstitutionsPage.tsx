@@ -37,6 +37,16 @@ export default function AdminInstitutionsPage() {
     };
   }, []);
 
+  const counts = useMemo(
+    () => ({
+      ALL: institutions.length,
+      ACTIVE: institutions.filter((i) => i.status === 'ACTIVE').length,
+      SUSPENDED: institutions.filter((i) => i.status === 'SUSPENDED').length,
+      PENDING: institutions.filter((i) => i.status === 'PENDING').length,
+    }),
+    [institutions],
+  );
+
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return institutions.filter((institution) => {
@@ -63,12 +73,11 @@ export default function AdminInstitutionsPage() {
             </span>
             <div>
               <p className="font-medium text-neutral-900">{row.name}</p>
-              <p className="text-xs text-neutral-500">{row.website}</p>
+              <p className="text-xs text-neutral-500">{row.type}</p>
             </div>
           </div>
         ),
       },
-      { key: 'type', header: 'Type', accessor: (row) => row.type, sortable: true },
       {
         key: 'status',
         header: 'Status',
@@ -89,6 +98,15 @@ export default function AdminInstitutionsPage() {
         accessor: (row) => row.issuerCount,
         align: 'right',
         sortable: true,
+      },
+      {
+        key: 'verified',
+        header: 'Verified',
+        accessor: (row) => (
+          <Badge variant={row.verified ? 'success' : 'warning'}>
+            {row.verified ? 'Yes' : 'No'}
+          </Badge>
+        ),
       },
       {
         key: 'createdAt',
@@ -118,6 +136,15 @@ export default function AdminInstitutionsPage() {
               >
                 Suspend
               </Button>
+            ) : row.status === 'PENDING' ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<PlayCircle className="h-4 w-4" />}
+                className="text-trust-600"
+              >
+                Approve
+              </Button>
             ) : (
               <Button
                 variant="ghost"
@@ -144,14 +171,17 @@ export default function AdminInstitutionsPage() {
       <section>
         <h1 className="text-2xl font-bold text-neutral-900">Institutions</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Onboard and manage institutions across the network.
+          Onboard and manage institutions across the network.{' '}
+          <span className="font-medium text-neutral-700">{counts.ACTIVE} active</span>,{' '}
+          <span className="font-medium text-neutral-700">{counts.PENDING} pending</span>,{' '}
+          <span className="font-medium text-neutral-700">{counts.SUSPENDED} suspended</span>.
         </p>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search institutions…"
+          placeholder="Search institutions\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}

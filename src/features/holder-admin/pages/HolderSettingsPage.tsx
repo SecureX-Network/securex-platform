@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Bell,
   Eye,
   EyeOff,
   KeyRound,
@@ -19,6 +20,7 @@ export default function HolderSettingsPage() {
   const [notifyVerified, setNotifyVerified] = useState(true);
   const [notifyShare, setNotifyShare] = useState(true);
   const [notifySecurity, setNotifySecurity] = useState(true);
+  const [notifyExpiry, setNotifyExpiry] = useState(true);
   const [shareProfilePublic, setShareProfilePublic] = useState(false);
 
   return (
@@ -49,6 +51,14 @@ export default function HolderSettingsPage() {
             defaultValue={user?.email ?? ''}
             leftIcon={<Mail className="h-4 w-4" />}
           />
+          <div className="rounded-lg bg-neutral-50 p-3">
+            <p className="text-xs text-neutral-500">
+              Role: <span className="font-medium text-neutral-700">{user?.role ?? 'Holder'}</span>
+            </p>
+            <p className="text-xs text-neutral-500">
+              Account created: <span className="font-medium text-neutral-700">Member since 2024</span>
+            </p>
+          </div>
           <Button>Save profile</Button>
         </div>
       </Card>
@@ -129,7 +139,7 @@ export default function HolderSettingsPage() {
 
       <Card>
         <div className="mb-3 flex items-center gap-2">
-          <Lock className="h-4 w-4 text-neutral-400" />
+          <Bell className="h-4 w-4 text-neutral-400" />
           <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
             Notification preferences
           </h2>
@@ -153,13 +163,19 @@ export default function HolderSettingsPage() {
             checked={notifySecurity}
             onChange={(e) => setNotifySecurity(e.target.checked)}
           />
+          <Checkbox
+            label="Credential expiry reminders"
+            description="Remind me before a credential expires."
+            checked={notifyExpiry}
+            onChange={(e) => setNotifyExpiry(e.target.checked)}
+          />
           <Button variant="outline">Save preferences</Button>
         </div>
       </Card>
 
       <Card>
         <div className="mb-3 flex items-center gap-2">
-          <Lock className="h-4 w-4 text-neutral-400" />
+          <ShieldCheck className="h-4 w-4 text-neutral-400" />
           <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
             Privacy
           </h2>
