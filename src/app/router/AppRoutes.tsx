@@ -24,51 +24,51 @@ import { PageLoader } from '@/components/shared/PageLoader';
 import { UnauthorizedPage } from '@/components/shared/UnauthorizedPage';
 import type { NavItem } from '@/components/layout/Sidebar';
 
-const HomePage = lazy(() => import('@/features/public/pages/HomePage'));
-const AboutPage = lazy(() => import('@/features/public/pages/AboutPage'));
-const HowItWorksPage = lazy(() => import('@/features/public/pages/HowItWorksPage'));
-const ContactPage = lazy(() => import('@/features/public/pages/ContactPage'));
+const HomePage = lazy(() => import('@/features/public-verification/pages/HomePage'));
+const AboutPage = lazy(() => import('@/features/public-verification/pages/AboutPage'));
+const HowItWorksPage = lazy(() => import('@/features/public-verification/pages/HowItWorksPage'));
+const ContactPage = lazy(() => import('@/features/public-verification/pages/ContactPage'));
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
 const RegisterPage = lazy(() => import('@/features/auth/pages/RegisterPage'));
 const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage'));
 const MfaPage = lazy(() => import('@/features/auth/pages/MfaPage'));
 
-const VerifyPage = lazy(() => import('@/features/verification/pages/VerifyPage'));
-const VerifyCredentialPage = lazy(() => import('@/features/verification/pages/VerifyCredentialPage'));
+const VerifyPage = lazy(() => import('@/features/public-verification/pages/VerifyPage'));
+const VerifyCredentialPage = lazy(() => import('@/features/public-verification/pages/VerifyCredentialPage'));
 
-const InstitutionDashboardPage = lazy(() => import('@/features/institution/pages/InstitutionDashboardPage'));
-const InstitutionCredentialsPage = lazy(() => import('@/features/institution/pages/InstitutionCredentialsPage'));
-const InstitutionIssuersPage = lazy(() => import('@/features/institution/pages/InstitutionIssuersPage'));
-const InstitutionIssuerDetailPage = lazy(() => import('@/features/institution/pages/InstitutionIssuerDetailPage'));
-const InstitutionIssuePage = lazy(() => import('@/features/institution/pages/InstitutionIssuePage'));
-const InstitutionTemplatesPage = lazy(() => import('@/features/institution/pages/InstitutionTemplatesPage'));
+const InstitutionDashboardPage = lazy(() => import('@/features/institution-employer/pages/InstitutionDashboardPage'));
+const InstitutionCredentialsPage = lazy(() => import('@/features/institution-employer/pages/InstitutionCredentialsPage'));
+const InstitutionIssuersPage = lazy(() => import('@/features/institution-employer/pages/InstitutionIssuersPage'));
+const InstitutionIssuerDetailPage = lazy(() => import('@/features/institution-employer/pages/InstitutionIssuerDetailPage'));
+const InstitutionIssuePage = lazy(() => import('@/features/institution-employer/pages/InstitutionIssuePage'));
+const InstitutionTemplatesPage = lazy(() => import('@/features/institution-employer/pages/InstitutionTemplatesPage'));
 
-const HolderDashboardPage = lazy(() => import('@/features/holder/pages/HolderDashboardPage'));
-const HolderCredentialsPage = lazy(() => import('@/features/holder/pages/HolderCredentialsPage'));
-const HolderCredentialDetailPage = lazy(() => import('@/features/holder/pages/HolderCredentialDetailPage'));
-const HolderSharePage = lazy(() => import('@/features/holder/pages/HolderSharePage'));
-const HolderNotificationsPage = lazy(() => import('@/features/holder/pages/HolderNotificationsPage'));
-const HolderSettingsPage = lazy(() => import('@/features/holder/pages/HolderSettingsPage'));
+const HolderDashboardPage = lazy(() => import('@/features/holder-admin/pages/HolderDashboardPage'));
+const HolderCredentialsPage = lazy(() => import('@/features/holder-admin/pages/HolderCredentialsPage'));
+const HolderCredentialDetailPage = lazy(() => import('@/features/holder-admin/pages/HolderCredentialDetailPage'));
+const HolderSharePage = lazy(() => import('@/features/holder-admin/pages/HolderSharePage'));
+const HolderNotificationsPage = lazy(() => import('@/features/holder-admin/pages/HolderNotificationsPage'));
+const HolderSettingsPage = lazy(() => import('@/features/holder-admin/pages/HolderSettingsPage'));
 
-const EmployerDashboardPage = lazy(() => import('@/features/employer/pages/EmployerDashboardPage'));
-const EmployerVerifyPage = lazy(() => import('@/features/employer/pages/EmployerVerifyPage'));
-const EmployerHistoryPage = lazy(() => import('@/features/employer/pages/EmployerHistoryPage'));
+const EmployerDashboardPage = lazy(() => import('@/features/institution-employer/pages/EmployerDashboardPage'));
+const EmployerVerifyPage = lazy(() => import('@/features/institution-employer/pages/EmployerVerifyPage'));
+const EmployerHistoryPage = lazy(() => import('@/features/institution-employer/pages/EmployerHistoryPage'));
 
-const AdminDashboardPage = lazy(() => import('@/features/admin/pages/AdminDashboardPage'));
-const AdminInstitutionsPage = lazy(() => import('@/features/admin/pages/AdminInstitutionsPage'));
-const AdminIssuersPage = lazy(() => import('@/features/admin/pages/AdminIssuersPage'));
-const AdminUsersPage = lazy(() => import('@/features/admin/pages/AdminUsersPage'));
-const AdminSecurityPage = lazy(() => import('@/features/admin/pages/AdminSecurityPage'));
-const AdminSecurityAlertsPage = lazy(() => import('@/features/admin/pages/AdminSecurityAlertsPage'));
-const AdminSecurityAuditPage = lazy(() => import('@/features/admin/pages/AdminSecurityAuditPage'));
-const AdminSettingsPage = lazy(() => import('@/features/admin/pages/AdminSettingsPage'));
+const AdminDashboardPage = lazy(() => import('@/features/holder-admin/pages/AdminDashboardPage'));
+const AdminInstitutionsPage = lazy(() => import('@/features/holder-admin/pages/AdminInstitutionsPage'));
+const AdminIssuersPage = lazy(() => import('@/features/holder-admin/pages/AdminIssuersPage'));
+const AdminUsersPage = lazy(() => import('@/features/holder-admin/pages/AdminUsersPage'));
+const AdminSecurityPage = lazy(() => import('@/features/holder-admin/pages/AdminSecurityPage'));
+const AdminSecurityAlertsPage = lazy(() => import('@/features/holder-admin/pages/AdminSecurityAlertsPage'));
+const AdminSecurityAuditPage = lazy(() => import('@/features/holder-admin/pages/AdminSecurityAuditPage'));
+const AdminSettingsPage = lazy(() => import('@/features/holder-admin/pages/AdminSettingsPage'));
 
-const ExplorerOverviewPage = lazy(() => import('@/features/explorer/pages/ExplorerOverviewPage'));
-const ExplorerBlocksPage = lazy(() => import('@/features/explorer/pages/ExplorerBlocksPage'));
-const ExplorerBlockDetailPage = lazy(() => import('@/features/explorer/pages/ExplorerBlockDetailPage'));
-const ExplorerTransactionsPage = lazy(() => import('@/features/explorer/pages/ExplorerTransactionsPage'));
-const ExplorerTransactionDetailPage = lazy(() => import('@/features/explorer/pages/ExplorerTransactionDetailPage'));
+const ExplorerOverviewPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerOverviewPage'));
+const ExplorerBlocksPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerBlocksPage'));
+const ExplorerBlockDetailPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerBlockDetailPage'));
+const ExplorerTransactionsPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerTransactionsPage'));
+const ExplorerTransactionDetailPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerTransactionDetailPage'));
 
 const institutionNavigation: NavItem[] = [
   { label: 'Dashboard', path: '/institution/dashboard', icon: LayoutDashboard, end: true },

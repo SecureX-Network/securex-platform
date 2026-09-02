@@ -1,6 +1,6 @@
 # SecureX Platform Architecture
 
-This document describes the high-level architecture of the SecureX Platform frontend. It is intended for the three frontend engineers who will maintain and extend this codebase.
+This document describes the high-level architecture of the SecureX Platform frontend. It is intended for the frontend engineers who will maintain and extend this codebase, each owning one feature workspace.
 
 ## Design Principles
 
@@ -19,7 +19,14 @@ src/
 │   ├── ui/             # Reusable UI primitives (Button, Modal, Table, ...)
 │   ├── layout/         # Layouts (Public, Dashboard, Holder) + Navbar/Sidebar/Topbar
 │   └── shared/         # PageLoader, NotFound, Unauthorized
-├── features/           # Feature modules, one folder per domain
+├── features/           # Feature workspaces, one per frontend branch + shared auth
+│   ├── auth/                   # SHARED application infrastructure
+│   ├── public-verification/    # frontend/public-verification
+│   ├── institution-employer/   # frontend/institution-employer
+│   ├── holder-admin/           # frontend/holder-admin
+│   ├── security-center/        # frontend/security-center (reserved)
+│   ├── fraud-tampering/        # frontend/fraud-tampering (reserved)
+│   └── explorer-simulation/    # frontend/explorer-simulation
 ├── hooks/              # Shared custom hooks (useApi, useAuth, useDebounce)
 ├── services/
 │   ├── api/            # Service boundary modules (credential, verification, admin, ...)
@@ -32,23 +39,32 @@ src/
 
 ## Frontend Engineer Ownership
 
-To avoid merge conflicts and stepping on each other's work, the codebase is split into three ownership areas aligned with the branch strategy:
+To avoid merge conflicts and stepping on each other's work, the codebase is split into
+feature workspaces aligned with the branch strategy. **Each frontend branch maps to exactly
+one feature workspace**:
 
-### Frontend Engineer 1 — `frontend/public-verification`
-Owns: Public website + Credential Verification + credential details
-- `src/features/public/**`
-- `src/features/verification/**`
+- `frontend/public-verification` → `src/features/public-verification/**`
+- `frontend/institution-employer` → `src/features/institution-employer/**`
+- `frontend/holder-admin` → `src/features/holder-admin/**`
+- `frontend/security-center` → `src/features/security-center/**`
+- `frontend/fraud-tampering` → `src/features/fraud-tampering/**`
+- `frontend/explorer-simulation` → `src/features/explorer-simulation/**`
 
-### Frontend Engineer 2 — `frontend/institution-employer`
-Owns: Institution panel + Employer panel
-- `src/features/institution/**`
-- `src/features/employer/**`
+### Shared infrastructure (outside all workspaces)
 
-### Frontend Engineer 3 — `frontend/holder-admin`
-Owns: Holder wallet + Admin panel + **Shared UI**
-- `src/features/holder/**`
-- `src/features/admin/**`
-- `src/components/ui/**` (the canonical, single source-of-truth UI library)
+Work spanning more than one workstream stays shared and is NOT moved into any workspace:
+
+- `src/features/auth/**` — shared application infrastructure (authentication flows).
+- `src/components/**` — shared UI / layout infrastructure; `src/components/ui/**` is the
+  canonical, single source-of-truth component library.
+- `src/services/**` — the shared API / mock integration boundary.
+- `src/hooks/**`, `src/types/**`, `src/utils/**`, `src/constants/**`, `src/config/**`,
+  `src/styles/**` — shared infrastructure.
+- `src/app/router/AppRoutes.tsx` — the application composition / root routing layer that
+  lazy-loads every workspace page; it is the only file that imports across all workspaces.
+
+Each feature workspace contains a `README.md` declaring its owner branch, purpose, primary
+routes, allowed scope, shared-code reuse, and OpenCode safety guidance.
 
 > **Important:** There is a single canonical implementation of each shared component in `src/components/ui/`. If you need a new variant, **extend the existing component** — do not create a second, inconsistent copy in your feature folder. This avoids drift and merge conflicts.
 

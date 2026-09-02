@@ -121,23 +121,22 @@ src/
 │       └── VerificationResult.tsx
 ├── config/                # App-wide configuration constants
 ├── constants/             # Route paths, navigation items, role maps
-├── features/              # Feature-oriented modules
-│   ├── auth/
+├── features/              # Feature workspaces, one per frontend branch
+│   ├── auth/              # SHARED application infrastructure (authentication flows)
 │   │   ├── components/    # AuthLayout
 │   │   └── pages/         # LoginPage, RegisterPage, ForgotPasswordPage, MfaPage
-│   ├── public/
-│   │   └── pages/         # HomePage, AboutPage, HowItWorksPage, ContactPage
-│   ├── verification/
-│   │   └── pages/         # VerifyPage, VerifyCredentialPage
-│   ├── institution/
-│   │   └── pages/         # Dashboard, Credentials, Issuers, Templates, Issue
-│   ├── holder/
-│   │   └── pages/         # Dashboard, Credentials, CredentialDetail, Share, Notifications, Settings
-│   ├── employer/
-│   │   └── pages/         # Dashboard, Verify, History
-│   ├── admin/
-│   │   └── pages/         # Dashboard, Institutions, Issuers, Users, Security, Alerts, Audit, Settings
-│   └── explorer/
+│   ├── public-verification/   # frontend/public-verification
+│   │   ├── __tests__/
+│   │   └── pages/         # HomePage, AboutPage, HowItWorksPage, ContactPage, VerifyPage, VerifyCredentialPage
+│   ├── institution-employer/  # frontend/institution-employer
+│   │   └── pages/         # Institution: Dashboard, Credentials, Issuers, IssuerDetail, Templates, Issue
+│   │                      # Employer: Dashboard, Verify, History
+│   ├── holder-admin/      # frontend/holder-admin
+│   │   └── pages/         # Holder: Dashboard, Credentials, CredentialDetail, Share, Notifications, Settings
+│   │                      # Admin: Dashboard, Institutions, Issuers, Users, Security, Alerts, Audit, Settings
+│   ├── security-center/   # frontend/security-center (reserved — no routes yet)
+│   ├── fraud-tampering/   # frontend/fraud-tampering (reserved — no routes yet)
+│   └── explorer-simulation/   # frontend/explorer-simulation
 │       ├── components/    # ExplorerLayout
 │       └── pages/         # Overview, Blocks, BlockDetail, Transactions, TransactionDetail
 ├── hooks/                 # Custom React hooks
@@ -279,22 +278,44 @@ Frontend contributors hold **Write access only to this repository** (least privi
 
 ### Branch ownership
 
-| Branch | Owner | Scope |
-| --- | --- | --- |
-| `frontend/public-verification` | Engineer 1 | Public website + credential verification |
-| `frontend/institution-employer` | Engineer 2 | Institution / Issuer panel + Employer / Verifier panel |
-| `frontend/holder-admin` | Engineer 3 | Holder wallet + Super Admin panel |
-| `frontend/security-center` | Security/AI Engineer 1 | Security Center frontend |
-| `frontend/fraud-tampering` | Security/AI Engineer 2 | Fraud/risk, tampering, fingerprint frontend |
-| `frontend/explorer-simulation` | Security/AI Engineer 3 | Blockchain Explorer + Attack Simulation frontend |
+| Branch | Owner | Workspace | Scope |
+| --- | --- | --- | --- |
+| `frontend/public-verification` | Engineer 1 | `src/features/public-verification/` | Public website + credential verification |
+| `frontend/institution-employer` | Engineer 2 | `src/features/institution-employer/` | Institution / Issuer panel + Employer / Verifier panel |
+| `frontend/holder-admin` | Engineer 3 | `src/features/holder-admin/` | Holder wallet + Super Admin panel |
+| `frontend/security-center` | Security/AI Engineer 1 | `src/features/security-center/` | Security Center frontend |
+| `frontend/fraud-tampering` | Security/AI Engineer 2 | `src/features/fraud-tampering/` | Fraud/risk, tampering, fingerprint frontend |
+| `frontend/explorer-simulation` | Security/AI Engineer 3 | `src/features/explorer-simulation/` | Blockchain Explorer + Attack Simulation frontend |
 
 The Security/AI engineers implement **frontend UI only**; the underlying fraud, AI, tampering, fingerprint, blockchain, and attack-simulation logic is Savan's backend work.
+
+### Workspace ownership model
+
+Each frontend branch maps to exactly one feature workspace. Work for a workstream lives
+primarily inside its workspace:
+
+- `frontend/public-verification` → `src/features/public-verification/`
+- `frontend/institution-employer` → `src/features/institution-employer/`
+- `frontend/holder-admin` → `src/features/holder-admin/`
+- `frontend/security-center` → `src/features/security-center/`
+- `frontend/fraud-tampering` → `src/features/fraud-tampering/`
+- `frontend/explorer-simulation` → `src/features/explorer-simulation/`
+
+Shared infrastructure stays outside all workspaces (do not fork it into a workspace):
+- `src/features/auth/` — shared application infrastructure (authentication flows).
+- `src/components/` — shared UI / layout infrastructure (`ui/` is the canonical component library).
+- `src/services/` — shared API / mock integration boundary.
+- `src/hooks/`, `src/types/`, `src/utils/`, `src/constants/`, `src/config/`, `src/styles/` — shared infrastructure.
+- `src/app/router/AppRoutes.tsx` — the application composition / root routing layer (lazy-loads every workspace page).
+
+Each workspace contains a `README.md` describing its owner branch, purpose, primary routes,
+allowed scope, shared-code reuse, and OpenCode safety guidance.
 
 All six branches originate from the verified V1 foundation commit (`889c300`). Work in progress stays on the team's branch until ready. Frontend PRs are reviewed and merged by Savan. See `CONTRIBUTING.md` for the complete governance and workflow.
 
 ## Architecture Notes
 
-- **Feature-oriented structure** - Code is organized by domain (`features/auth`, `features/institution`, etc.) rather than file type, making it easy to locate all code related to a feature.
+- **Feature-oriented structure** - Code is organized by domain into per-branch workspaces (`features/public-verification`, `features/institution-employer`, `features/holder-admin`, `features/security-center`, `features/fraud-tampering`, `features/explorer-simulation`, plus shared `features/auth`) rather than by file type, making it easy to locate all code owned by a workstream.
 - **API abstraction layer** - All API calls go through `services/api/`, which switches between real HTTP clients and mock data based on the `VITE_IS_MOCK` environment variable.
 - **Mock data strategy** - `services/mock/data.ts` contains a complete set of realistic mock data (users, institutions, issuers, credentials, blocks, transactions, alerts, audit events, templates) enabling full offline development with zero backend dependency.
 - **Lazy loading** - All feature pages are lazy-loaded via `React.lazy()` and wrapped in `Suspense` for optimal bundle splitting.

@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react';
-import HomePage from '@/features/public/pages/HomePage';
+import HomePage from '@/features/public-verification/pages/HomePage';
 import { renderWithProviders } from '@/test/test-utils';
 
 describe('HomePage', () => {

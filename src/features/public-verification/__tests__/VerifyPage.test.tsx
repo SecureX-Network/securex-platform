@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react';
-import VerifyPage from '@/features/verification/pages/VerifyPage';
+import VerifyPage from '@/features/public-verification/pages/VerifyPage';
 import { renderWithProviders } from '@/test/test-utils';
 
 describe('VerifyPage', () => {
