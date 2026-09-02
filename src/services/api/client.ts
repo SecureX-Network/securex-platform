@@ -1,4 +1,4 @@
-import { API_BASE_URL, AUTH_TOKEN_KEY, IS_MOCK } from '@/constants';
+import { API_BASE_URL, BLOCKCHAIN_API_URL, AUTH_TOKEN_KEY, IS_MOCK } from '@/constants';
 import { mockDelay } from '@/services/mock';
 import type { ApiResponse } from '@/types';
 
@@ -53,4 +53,53 @@ export function unwrapResponse<T>(response: ApiResponse<T>): T {
     throw new ApiError(response.error ?? 'Request failed', 400);
   }
   return response.data;
+}
+
+async function requestJson<T>(baseUrl: string, url: string, options: RequestInit): Promise<T> {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const headers = new Headers(options.headers);
+  headers.set('Content-Type', 'application/json');
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${url}`, { ...options, headers });
+  } catch {
+    throw new ApiError('Unable to reach the service. Please check your connection and try again.', 0);
+  }
+
+  const payload = (await response.json().catch(() => null)) as {
+    success: boolean;
+    data?: T;
+    error?: string | { code?: string; message?: string };
+  } | null;
+
+  if (!response.ok) {
+    const error = payload?.error;
+    const message =
+      typeof error === 'string'
+        ? error
+        : error?.message ?? `Request failed with status ${response.status}`;
+    throw new ApiError(message, response.status);
+  }
+
+  if (!payload?.success || payload.data === undefined) {
+    const error = payload?.error;
+    const message =
+      typeof error === 'string'
+        ? error
+        : error?.message ?? 'The service returned an unexpected response.';
+    throw new ApiError(message, response.status);
+  }
+
+  return payload.data;
+}
+
+export async function fetchBlockchainAPI<T>(
+  url: string,
+  options: RequestInit = {},
+): Promise<T> {
+  return requestJson<T>(BLOCKCHAIN_API_URL, url, options);
 }
