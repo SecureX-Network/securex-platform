@@ -1,0 +1,173 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ExternalLink,
+  Printer,
+  Search,
+  Share2,
+} from 'lucide-react';
+import { Button, Card, Spinner } from '@/components/ui';
+import { VerificationResult } from '@/components/ui/VerificationResult';
+import { ROUTES } from '@/constants';
+import { verifyCredential } from '@/services/api/verificationService';
+import type { VerificationResult as VerificationResultData } from '@/types';
+
+export default function VerifyCredentialPage() {
+  const { credentialId } = useParams<{ credentialId: string }>();
+  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState<VerificationResultData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!credentialId) {
+      setError('No credential ID provided.');
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setError(null);
+    verifyCredential(credentialId)
+      .then((data) => {
+        if (active) setResult(data);
+      })
+      .catch((err: unknown) => {
+        if (active) {
+          setError(
+            err instanceof Error ? err.message : 'Verification failed. Please try again.',
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [credentialId]);
+
+  async function shareResult() {
+    const shareUrl = `${window.location.origin}/verify/${encodeURIComponent(credentialId ?? '')}`;
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: 'SecureX Verification Result',
+          url: shareUrl,
+        });
+      } catch {
+        // User dismissed the share sheet; fall through to clipboard.
+        await window.navigator.clipboard.writeText(shareUrl);
+      }
+      return;
+    }
+    await window.navigator.clipboard.writeText(shareUrl);
+  }
+
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
+
+  return (
+    <div className="bg-neutral-50">
+      {/* Header */}
+      <section className="bg-neutral-950">
+        <div className="mx-auto max-w-5xl px-4 py-12 pt-16 sm:px-6 lg:px-8">
+          <Link
+            to={ROUTES.VERIFY}
+            className="inline-flex items-center gap-2 text-sm font-medium text-neutral-300 transition-colors hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to verification
+          </Link>
+          <h1 className="mt-4 text-2xl font-bold text-white sm:text-3xl">
+            Credential verification result
+          </h1>
+          {credentialId && (
+            <p className="mt-2 break-all font-mono text-sm text-neutral-300">
+              {credentialId}
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-5xl px-4 py-10 pb-16 sm:px-6 lg:px-8">
+        {loading ? (
+          <Card padding="lg" className="shadow-securex">
+            <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+              <Spinner size="lg" label="Verifying credential…" color="#4338ca" />
+              <div>
+                <p className="text-sm font-medium text-neutral-700">
+                  Verifying credential
+                </p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Checking the distributed ledger and digital signature.
+                </p>
+              </div>
+            </div>
+          </Card>
+        ) : error ? (
+          <Card padding="lg" className="shadow-securex">
+            <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-danger-50 text-danger-500">
+                <Search className="h-7 w-7" />
+              </span>
+              <h2 className="text-lg font-semibold text-neutral-900">
+                Could not complete verification
+              </h2>
+              <p className="max-w-md text-sm text-neutral-500">{error}</p>
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+                <Button
+                  variant="outline"
+                  leftIcon={<ArrowLeft className="h-4 w-4" />}
+                  onClick={() => window.history.back()}
+                >
+                  Try another ID
+                </Button>
+                <Button href={ROUTES.VERIFY}>Verify another credential</Button>
+              </div>
+            </div>
+          </Card>
+        ) : result ? (
+          <>
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-neutral-500">
+                Verification performed by the SecureX verification engine.
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Share2 className="h-4 w-4" />}
+                  onClick={() => void shareResult()}
+                >
+                  Share
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Printer className="h-4 w-4" />}
+                  onClick={handlePrint}
+                >
+                  Print
+                </Button>
+              </div>
+            </div>
+
+            <VerificationResult result={result} />
+
+            <div className="mt-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-2 text-xs text-neutral-400">
+                <ExternalLink className="h-3.5 w-3.5" />
+                This result was generated live against the SecureX ledger.
+              </div>
+              <Button href={ROUTES.VERIFY} variant="ghost" size="sm">
+                Verify another credential
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </section>
+    </div>
+  );
+}
