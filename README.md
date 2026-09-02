@@ -263,14 +263,30 @@ All demo users share the password `Password123!`.
 
 ## Git Workflow
 
-The repository uses a three-branch feature strategy:
+`main` is the integrated, production-oriented development branch. Savan (backend/integration owner) commits backend work directly to `main`; six frontend engineers work on their assigned branches and merge into `main` via Pull Requests.
 
-- **`main`** - Stable production-ready foundation. All feature branches are rebased/merged here before release.
-- **`frontend/public-verification`** - Public website pages and credential verification UI.
-- **`frontend/institution-employer`** - Institution dashboard/credential management and employer verification tools.
-- **`frontend/holder-admin`** - Holder digital wallet, admin management console, and shared UI components.
+```
+main
+├── frontend/public-verification
+├── frontend/institution-employer
+├── frontend/holder-admin
+├── frontend/security-center
+├── frontend/fraud-tampering
+└── frontend/explorer-simulation
+```
 
-Each feature branch is merged into `main` after review. Work in progress stays on the team's feature branch until ready.
+### Branch ownership
+
+| Branch | Owner | Scope |
+| --- | --- | --- |
+| `frontend/public-verification` | Engineer 1 | Public website + credential verification |
+| `frontend/institution-employer` | Engineer 2 | Institution / Issuer panel + Employer / Verifier panel |
+| `frontend/holder-admin` | Engineer 3 | Holder wallet + Super Admin panel |
+| `frontend/security-center` | Security/AI Engineer 1 | Security Center frontend |
+| `frontend/fraud-tampering` | Security/AI Engineer 2 | Fraud/risk, tampering, fingerprint frontend |
+| `frontend/explorer-simulation` | Security/AI Engineer 3 | Blockchain Explorer + Attack Simulation frontend |
+
+All six branches originate from the verified V1 foundation commit (`889c300`). Work in progress stays on the team's branch until ready. See `CONTRIBUTING.md` for the complete governance and workflow.
 
 ## Architecture Notes
 
