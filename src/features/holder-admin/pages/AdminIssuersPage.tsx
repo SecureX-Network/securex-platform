@@ -44,6 +44,19 @@ export default function AdminIssuersPage() {
     [],
   );
 
+  const counts = useMemo(() => {
+    const filtered = MOCK_ISSUERS.filter((i) => {
+      if (institutionFilter !== 'ALL' && i.institutionName !== institutionFilter) return false;
+      return true;
+    });
+    return {
+      ALL: filtered.length,
+      ACTIVE: filtered.filter((i) => i.status === 'ACTIVE').length,
+      SUSPENDED: filtered.filter((i) => i.status === 'SUSPENDED').length,
+      REVOKED: filtered.filter((i) => i.status === 'REVOKED').length,
+    };
+  }, [institutionFilter]);
+
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return MOCK_ISSUERS.filter((issuer) => {
@@ -56,10 +69,16 @@ export default function AdminIssuersPage() {
       if (!query) return true;
       return (
         issuer.name.toLowerCase().includes(query) ||
-        issuer.institutionName.toLowerCase().includes(query)
+        issuer.institutionName.toLowerCase().includes(query) ||
+        issuer.email.toLowerCase().includes(query)
       );
     });
   }, [search, institutionFilter, statusFilter]);
+
+  const totalCredentialsIssued = useMemo(
+    () => visible.reduce((sum, i) => sum + i.credentialsIssued, 0),
+    [visible],
+  );
 
   const columns: Column<Issuer>[] = useMemo(
     () => [
@@ -100,7 +119,7 @@ export default function AdminIssuersPage() {
         header: 'Public Key',
         accessor: (row) => (
           <span className="inline-flex items-center gap-1.5 font-mono text-xs text-neutral-600">
-            <KeyRound className="h-3.5 w-3.5 text-neutral-400" />
+            <KeyRound className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
             {truncateHash(row.publicKey, 8, 8)}
           </span>
         ),
@@ -148,14 +167,16 @@ export default function AdminIssuersPage() {
       <section>
         <h1 className="text-2xl font-bold text-neutral-900">All Issuers</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Review signing authorities across all institutions.
+          Review signing authorities across all institutions.{' '}
+          <span className="font-medium text-neutral-700">{counts.ACTIVE} active</span>,{' '}
+          <span className="font-medium text-neutral-700">{totalCredentialsIssued.toLocaleString()} total credentials issued</span>.
         </p>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search issuers…"
+          placeholder="Search issuers\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}

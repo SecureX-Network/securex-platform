@@ -4,11 +4,14 @@ import {
   Check,
   Clock,
   Copy,
+  Info,
   Link2,
   Mail,
   QrCode,
+  ShieldCheck,
 } from 'lucide-react';
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -51,8 +54,11 @@ export default function HolderSharePage() {
     setLoading(true);
     try {
       const data = await getHolderCredentials(holderId);
-      setCredentials(data);
-      if (data.length > 0) setSelectedId(data[0]!.id);
+      setCredentials(data.filter((c) => c.status === 'VALID'));
+      if (data.length > 0) {
+        const valid = data.find((c) => c.status === 'VALID');
+        if (valid) setSelectedId(valid.id);
+      }
     } catch {
       setCredentials([]);
     } finally {
@@ -141,7 +147,7 @@ export default function HolderSharePage() {
         <h1 className="text-xl font-bold text-neutral-900">Share a Credential</h1>
         <EmptyState
           title="No credentials to share"
-          description="You need at least one credential in your wallet before you can share it."
+          description="You need at least one active credential in your wallet before you can share it."
         />
       </div>
     );
@@ -152,8 +158,8 @@ export default function HolderSharePage() {
       <section>
         <h1 className="text-xl font-bold text-neutral-900">Share a Credential</h1>
         <p className="mt-0.5 text-sm text-neutral-500">
-          Generate a secure link or QR code to share a credential with an
-          employer or verifier.
+          Generate a secure verification link or display a QR code for a
+          verifier.
         </p>
       </section>
 
@@ -186,8 +192,8 @@ export default function HolderSharePage() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
           2. Set expiration
         </h2>
-        <div className="mb-4 flex items-center gap-2">
-          <Clock className="h-4 w-4 text-neutral-400" />
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 shrink-0 text-neutral-400" />
           <Select
             aria-label="Share link expiration"
             value={expiry}
@@ -195,9 +201,11 @@ export default function HolderSharePage() {
             options={EXPIRY_OPTIONS}
           />
         </div>
+      </Card>
 
+      <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          QR code
+          3. Verification QR code
         </h2>
         <div className="flex flex-col items-center gap-3 rounded-xl bg-neutral-50 p-5">
           <div className="flex h-44 w-44 items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-white">
@@ -212,11 +220,17 @@ export default function HolderSharePage() {
             Display this QR code for a verifier to scan.
           </p>
         </div>
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-neutral-500">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          The QR code encodes the credential verification identifier. A real QR
+          library will generate a scannable code when backend integration is
+          complete.
+        </p>
       </Card>
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          3. Share options
+          4. Share options
         </h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <Button
@@ -271,13 +285,20 @@ export default function HolderSharePage() {
         )}
       </Card>
 
+      <Alert
+        variant="info"
+        title="Security notice"
+        description="Share links are generated locally and contain only the credential verification identifier. No private data is exposed through the link. Recipients can verify the credential through the SecureX verification portal."
+        icon={<ShieldCheck className="h-5 w-5" />}
+      />
+
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
           Recent shares
         </h2>
         {recentShares.length === 0 ? (
           <p className="py-4 text-center text-sm text-neutral-400">
-            You haven’t shared any credentials yet.
+            You haven\u2019t shared any credentials yet.
           </p>
         ) : (
           <ul className="divide-y divide-neutral-100">
@@ -291,9 +312,9 @@ export default function HolderSharePage() {
                     {share.credentialTitle}
                   </p>
                   <p className="text-xs text-neutral-500">
-                    {share.method === 'email' ? 'Via email' : 'Share link'} ·{' '}
+                    {share.method === 'email' ? 'Via email' : 'Share link'} \u00b7{' '}
                     {formatDate(share.createdAt)}
-                    {share.expiresAt && ` · expires ${formatDate(share.expiresAt)}`}
+                    {share.expiresAt && ` \u00b7 expires ${formatDate(share.expiresAt)}`}
                   </p>
                 </div>
                 <Badge variant={share.method === 'email' ? 'info' : 'success'}>

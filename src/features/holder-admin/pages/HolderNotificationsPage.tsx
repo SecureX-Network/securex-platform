@@ -17,12 +17,12 @@ type Filter = 'ALL' | 'credential' | 'security' | 'system';
 
 const typeConfig: Record<
   Notification['type'],
-  { icon: typeof Info; classes: string }
+  { icon: typeof Info; classes: string; label: string }
 > = {
-  SUCCESS: { icon: CheckCircle2, classes: 'bg-trust-50 text-trust-600' },
-  INFO: { icon: Info, classes: 'bg-securex-50 text-securex-600' },
-  WARNING: { icon: AlertTriangle, classes: 'bg-warning-50 text-warning-600' },
-  ERROR: { icon: ShieldAlert, classes: 'bg-danger-50 text-danger-600' },
+  SUCCESS: { icon: CheckCircle2, classes: 'bg-trust-50 text-trust-600', label: 'Success' },
+  INFO: { icon: Info, classes: 'bg-securex-50 text-securex-600', label: 'Info' },
+  WARNING: { icon: AlertTriangle, classes: 'bg-warning-50 text-warning-600', label: 'Warning' },
+  ERROR: { icon: ShieldAlert, classes: 'bg-danger-50 text-danger-600', label: 'Alert' },
 };
 
 function categorize(notification: Notification): Exclude<Filter, 'ALL'> {
@@ -104,7 +104,9 @@ export default function HolderNotificationsPage() {
         <div>
           <h1 className="text-xl font-bold text-neutral-900">Notifications</h1>
           <p className="mt-0.5 text-sm text-neutral-500">
-            {unread > 0 ? `${unread} unread` : 'You’re all caught up'}
+            {unread > 0
+              ? `${unread} unread notification${unread > 1 ? 's' : ''}`
+              : 'You\u2019re all caught up'}
           </p>
         </div>
         {unread > 0 && (

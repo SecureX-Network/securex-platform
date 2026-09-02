@@ -15,7 +15,7 @@ import { getAuditEvents } from '@/services/api/adminService';
 import type { AuditEvent } from '@/types';
 import { formatDate } from '@/utils';
 
-const PAGE_SIZE = 6;
+const PAGE_SIZE = 8;
 
 export default function AdminSecurityAuditPage() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -146,7 +146,9 @@ export default function AdminSecurityAuditPage() {
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Audit Log</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Immutable trail of platform actions for compliance and forensics.
+            Immutable trail of platform actions for compliance and forensics.{' '}
+            <span className="font-medium text-neutral-700">{filtered.length} events</span>
+            {dateFilter !== 'ALL' && ` in the last ${dateFilter.replace('d', ' days')}`}.
           </p>
         </div>
         <Button
@@ -161,7 +163,7 @@ export default function AdminSecurityAuditPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search action, actor, target, IP…"
+          placeholder="Search action, actor, target, IP\u2026"
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);

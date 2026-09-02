@@ -32,7 +32,6 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
 
   useEffect(() => {
     let active = true;
@@ -53,6 +52,14 @@ export default function AdminUsersPage() {
     ];
   }, [users]);
 
+  const counts = useMemo(() => ({
+    ALL: users.length,
+    HOLDER: users.filter((u) => u.role === 'HOLDER').length,
+    INSTITUTION: users.filter((u) => u.role === 'INSTITUTION').length,
+    EMPLOYER: users.filter((u) => u.role === 'EMPLOYER').length,
+    ADMIN: users.filter((u) => u.role === 'ADMIN' || u.role === 'SECURITY_ADMIN' || u.role === 'NETWORK_ADMIN').length,
+  }), [users]);
+
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return users.filter((user) => {
@@ -66,7 +73,7 @@ export default function AdminUsersPage() {
   }, [users, search, roleFilter]);
 
   const institutionName = (id?: string) =>
-    id ? MOCK_INSTITUTIONS.find((i) => i.id === id)?.name ?? '—' : '—';
+    id ? MOCK_INSTITUTIONS.find((i) => i.id === id)?.name ?? '\u2014' : '\u2014';
 
   const columns: Column<User>[] = useMemo(
     () => [
@@ -99,17 +106,18 @@ export default function AdminUsersPage() {
       {
         key: 'institutionId',
         header: 'Institution',
-        accessor: (row) => institutionName(row.institutionId),
-      },
-      {
-        key: 'status',
-        header: 'Status',
-        accessor: () => <Badge variant="success">Active</Badge>,
+        accessor: (row) => (
+          <span className="text-sm text-neutral-600">{institutionName(row.institutionId)}</span>
+        ),
       },
       {
         key: 'lastLoginAt',
         header: 'Last Login',
-        accessor: (row) => (row.lastLoginAt ? formatDate(row.lastLoginAt) : '—'),
+        accessor: (row) => (
+          <span className="text-sm text-neutral-500">
+            {row.lastLoginAt ? formatDate(row.lastLoginAt) : '\u2014'}
+          </span>
+        ),
         sortable: true,
         sortValue: (row) => row.lastLoginAt ?? '',
       },
@@ -158,14 +166,17 @@ export default function AdminUsersPage() {
       <section>
         <h1 className="text-2xl font-bold text-neutral-900">Users</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Directory of all platform users with roles and account status.
+          Directory of all platform users.{' '}
+          <span className="font-medium text-neutral-700">{counts.HOLDER} holders</span>,{' '}
+          <span className="font-medium text-neutral-700">{counts.INSTITUTION} institutions</span>,{' '}
+          <span className="font-medium text-neutral-700">{counts.EMPLOYER} employers</span>.
         </p>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search users…"
+          placeholder="Search users\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
@@ -177,17 +188,6 @@ export default function AdminUsersPage() {
           onChange={(event) => setRoleFilter(event.target.value)}
           options={roleOptions}
           className="sm:w-48"
-        />
-        <Select
-          aria-label="Filter by status"
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-          options={[
-            { label: 'All statuses', value: 'ALL' },
-            { label: 'Active', value: 'ACTIVE' },
-            { label: 'Deactivated', value: 'DEACTIVATED' },
-          ]}
-          className="sm:w-44"
         />
       </div>
 

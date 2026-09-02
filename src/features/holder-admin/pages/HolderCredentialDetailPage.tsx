@@ -6,12 +6,15 @@ import {
   Building2,
   Calendar,
   CheckCircle2,
+  Clock,
   Fingerprint,
   Layers,
   Link2,
   QrCode,
   Share2,
   ShieldCheck,
+  ShieldX,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   Badge,
@@ -39,20 +42,93 @@ const statusTone: Record<
   NOT_FOUND: { label: 'Not found', classes: 'bg-neutral-100 text-neutral-600' },
 };
 
+interface LifecycleEvent {
+  type: string;
+  label: string;
+  date: string;
+  icon: typeof CheckCircle2;
+  color: string;
+}
+
+function buildLifecycleHistory(credential: Credential): LifecycleEvent[] {
+  const events: LifecycleEvent[] = [];
+
+  events.push({
+    type: 'ISSUED',
+    label: 'Credential issued',
+    date: credential.issuedAt,
+    icon: CheckCircle2,
+    color: 'bg-trust-50 text-trust-600',
+  });
+
+  if (credential.revokedAt) {
+    events.push({
+      type: 'REVOKED',
+      label: credential.revokedReason
+        ? `Revoked: ${credential.revokedReason}`
+        : 'Credential revoked',
+      date: credential.revokedAt,
+      icon: ShieldX,
+      color: 'bg-danger-50 text-danger-600',
+    });
+  }
+
+  if (credential.status === 'SUSPENDED') {
+    events.push({
+      type: 'SUSPENDED',
+      label: 'Credential suspended',
+      date: credential.issuedAt,
+      icon: ShieldAlert,
+      color: 'bg-warning-50 text-warning-600',
+    });
+  }
+
+  if (credential.status === 'TAMPERED') {
+    events.push({
+      type: 'TAMPERED',
+      label: 'Tamper detected',
+      date: credential.issuedAt,
+      icon: ShieldX,
+      color: 'bg-danger-50 text-danger-600',
+    });
+  }
+
+  if (
+    credential.expiresAt &&
+    new Date(credential.expiresAt).getTime() < Date.now()
+  ) {
+    events.push({
+      type: 'EXPIRED',
+      label: 'Credential expired',
+      date: credential.expiresAt,
+      icon: Clock,
+      color: 'bg-neutral-100 text-neutral-500',
+    });
+  }
+
+  return events.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+}
+
 function DetailRow({
   label,
   value,
-  className,
+  mono,
+  accent,
 }: {
   label: string;
   value: string;
-  className?: string;
+  mono?: boolean;
+  accent?: boolean;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2.5">
       <dt className="text-sm text-neutral-500">{label}</dt>
       <dd
-        className={`break-all text-right text-sm font-medium text-neutral-800 ${className ?? ''}`}
+        className={`break-all text-right text-sm font-medium ${
+          mono ? 'font-mono text-xs' : ''
+        } ${accent ? 'text-securex-600' : 'text-neutral-800'}`}
       >
         {value}
       </dd>
@@ -103,13 +179,14 @@ export default function HolderCredentialDetailPage() {
         </Link>
         <ErrorState
           title="Credential not found"
-          description="We couldn’t find this credential in your wallet."
+          description="We couldn\u2019t find this credential in your wallet."
         />
       </div>
     );
   }
 
   const tone = statusTone[credential.status];
+  const lifecycle = buildLifecycleHistory(credential);
 
   const handleCopy = async () => {
     const link = `${window.location.origin}/verify/${credential.credentialId}`;
@@ -141,11 +218,14 @@ export default function HolderCredentialDetailPage() {
               {credential.title}
             </h1>
             <p className="mt-1 text-sm text-neutral-500">
-              {credential.type} · {credential.institutionName}
+              {credential.type} \u00b7 {credential.institutionName}
             </p>
-            <span className={`mt-2 inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.classes}`}>
-              {tone.label}
-            </span>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.classes}`}>
+                {tone.label}
+              </span>
+              <StatusIndicator status={credential.status} size="sm" />
+            </div>
           </div>
         </div>
       </section>
@@ -155,14 +235,10 @@ export default function HolderCredentialDetailPage() {
           Credential Information
         </h2>
         <dl className="divide-y divide-neutral-100">
-          <DetailRow label="Credential ID" value={credential.credentialId} className="font-mono text-xs" />
+          <DetailRow label="Credential ID" value={credential.credentialId} mono />
+          <DetailRow label="Type" value={credential.type} />
           <DetailRow label="Holder" value={credential.holderName} />
-          <div className="flex items-center justify-between gap-4 py-2.5">
-            <dt className="text-sm text-neutral-500">Status</dt>
-            <dd>
-              <StatusIndicator status={credential.status} />
-            </dd>
-          </div>
+          <DetailRow label="Issuer" value={credential.issuerName} />
         </dl>
         {credential.description && (
           <p className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600">
@@ -203,7 +279,7 @@ export default function HolderCredentialDetailPage() {
           {credential.revokedAt && (
             <>
               <DetailRow label="Revoked" value={formatDate(credential.revokedAt)} />
-              <DetailRow label="Revocation reason" value={credential.revokedReason ?? '—'} />
+              <DetailRow label="Revocation reason" value={credential.revokedReason ?? '\u2014'} />
             </>
           )}
         </dl>
@@ -220,12 +296,13 @@ export default function HolderCredentialDetailPage() {
           <DetailRow
             label="Transaction hash"
             value={truncateHash(credential.blockchainTxHash)}
-            className="font-mono text-xs text-securex-600"
+            mono
+            accent
           />
           <DetailRow
             label="Merkle root"
             value={truncateHash(credential.merkleRoot)}
-            className="font-mono text-xs"
+            mono
           />
           <DetailRow label="Block" value="Recorded on-chain" />
         </dl>
@@ -246,7 +323,7 @@ export default function HolderCredentialDetailPage() {
           <DetailRow
             label="Signature"
             value={truncateHash(credential.digitalSignature)}
-            className="font-mono text-xs"
+            mono
           />
           <DetailRow label="Algorithm" value="Ed25519-SHA256" />
         </dl>
@@ -255,6 +332,46 @@ export default function HolderCredentialDetailPage() {
           Signature verified
         </div>
       </Card>
+
+      {lifecycle.length > 0 && (
+        <Card>
+          <div className="mb-3 flex items-center gap-2">
+            <Clock className="h-4 w-4 text-neutral-400" />
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
+              Lifecycle History
+            </h2>
+          </div>
+          <div className="relative ml-3 border-l-2 border-neutral-200 pl-6">
+            {lifecycle.map((event, index) => {
+              const Icon = event.icon;
+              return (
+                <div
+                  key={`${event.type}-${index}`}
+                  className="relative pb-6 last:pb-0"
+                >
+                  <span
+                    className={`absolute -left-[25px] flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white ${event.color}`}
+                  >
+                    <Icon className="h-3 w-3" />
+                  </span>
+                  <p className="text-sm font-medium text-neutral-800">
+                    {event.label}
+                  </p>
+                  <p className="text-xs text-neutral-500">
+                    {formatDate(event.date, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="mb-3 flex items-center gap-2">

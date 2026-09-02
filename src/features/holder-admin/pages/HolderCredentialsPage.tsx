@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpDown, IdCard, Search } from 'lucide-react';
+import { ArrowUpDown, CreditCard, Search } from 'lucide-react';
 import {
   CredentialCard,
   EmptyState,
@@ -14,12 +14,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { getHolderCredentials } from '@/services/api/credentialService';
 import type { Credential } from '@/types';
 
-type StatusFilter = 'ALL' | 'VALID' | 'EXPIRED' | 'REVOKED';
+type StatusFilter = 'ALL' | 'VALID' | 'EXPIRED' | 'REVOKED' | 'SUSPENDED';
 
 const SORT_OPTIONS = [
   { label: 'Recently issued', value: 'recent' },
   { label: 'Expiring soon', value: 'expiry' },
-  { label: 'Title (A–Z)', value: 'title' },
+  { label: 'Title (A\u2013Z)', value: 'title' },
 ];
 
 function applyStatusFilter(credential: Credential, filter: StatusFilter): boolean {
@@ -60,6 +60,7 @@ export default function HolderCredentialsPage() {
       VALID: credentials.filter((c) => c.status === 'VALID').length,
       EXPIRED: credentials.filter((c) => c.status === 'EXPIRED').length,
       REVOKED: credentials.filter((c) => c.status === 'REVOKED').length,
+      SUSPENDED: credentials.filter((c) => c.status === 'SUSPENDED').length,
     }),
     [credentials],
   );
@@ -70,6 +71,7 @@ export default function HolderCredentialsPage() {
       { id: 'VALID', label: `Valid (${counts.VALID})` },
       { id: 'EXPIRED', label: `Expired (${counts.EXPIRED})` },
       { id: 'REVOKED', label: `Revoked (${counts.REVOKED})` },
+      { id: 'SUSPENDED', label: `Suspended (${counts.SUSPENDED})` },
     ],
     [counts],
   );
@@ -82,7 +84,8 @@ export default function HolderCredentialsPage() {
       return (
         credential.title.toLowerCase().includes(query) ||
         credential.institutionName.toLowerCase().includes(query) ||
-        credential.credentialId.toLowerCase().includes(query)
+        credential.credentialId.toLowerCase().includes(query) ||
+        credential.type.toLowerCase().includes(query)
       );
     });
 
@@ -116,7 +119,7 @@ export default function HolderCredentialsPage() {
       <div className="space-y-3">
         <Input
           type="search"
-          placeholder="Search by name, issuer, or ID…"
+          placeholder="Search by name, issuer, type, or ID\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
@@ -152,7 +155,7 @@ export default function HolderCredentialsPage() {
         <EmptyState
           icon={
             <div className="flex h-7 w-7 items-center justify-center">
-              <IdCard className="h-6 w-6" />
+              <CreditCard className="h-6 w-6" />
             </div>
           }
           title={
@@ -162,7 +165,7 @@ export default function HolderCredentialsPage() {
           }
           description={
             search || statusFilter !== 'ALL'
-              ? 'Try adjusting your search or filters to find what you’re looking for.'
+              ? 'Try adjusting your search or filters to find what you\u2019re looking for.'
               : 'Credentials issued to you will appear here automatically.'
           }
         />
