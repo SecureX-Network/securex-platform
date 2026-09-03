@@ -78,8 +78,8 @@ export default function VerifyPage() {
               Verify any credential instantly
             </h1>
             <p className="mt-6 text-lg leading-relaxed text-neutral-300">
-              Enter a credential ID or scan a QR code to check its authenticity
-              against the SecureX ledger.
+             Enter a credential ID or use a QR code to check credential
+verification details through SecureX.
             </p>
           </div>
         </div>
@@ -155,7 +155,7 @@ export default function VerifyPage() {
             Scan a QR code
           </h2>
           <p className="mt-1 text-sm text-neutral-500">
-            Point your camera at a credential QR code to verify it.
+            QR scanning is not available in the current version.
           </p>
           <div className="mt-5 flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-neutral-300 bg-neutral-50 p-10 text-center">
             <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-neutral-100 text-neutral-400">
@@ -181,7 +181,7 @@ export default function VerifyPage() {
           <Card
             className="mt-6"
             title="Recent verifications"
-            description="Your verification activity on the SecureX network."
+            description="Your recent credential verification activity."
             bodyClassName="pt-2"
           >
             {history === null ? (

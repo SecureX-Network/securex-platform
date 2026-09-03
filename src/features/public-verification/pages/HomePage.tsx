@@ -75,6 +75,8 @@ export default function HomePage() {
     <div>
       {/* Hero */}
       <section className="relative overflow-hidden bg-neutral-950">
+  <div className="pointer-events-none absolute -left-40 top-20 h-80 w-80 rounded-full bg-trust-500/10 blur-3xl" />
+  <div className="pointer-events-none absolute -right-40 top-0 h-96 w-96 rounded-full bg-securex-500/10 blur-3xl" />
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.18),transparent_55%)]" />
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(80,70,229,0.15),transparent_55%)]" />
         <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
@@ -83,13 +85,13 @@ export default function HomePage() {
               <ShieldCheck className="h-3.5 w-3.5 text-trust-400" />
               Blockchain-Powered Trust Network
             </span>
-            <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl">
+            <h1 className="mt-7 text-4xl font-extrabold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl xl:text-7xl">
               Blockchain-Powered Digital{' '}
               <span className="bg-gradient-to-r from-trust-400 to-securex-400 bg-clip-text text-transparent">
                 Credential Trust Network
               </span>
             </h1>
-            <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-neutral-300">
+            <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-neutral-300 sm:text-lg sm:leading-8">
               Issue, store, and verify credentials with cryptographic security.
               SecureX connects institutions, holders, and employers through a
               tamper-proof distributed ledger — building trust in every
@@ -112,11 +114,11 @@ export default function HomePage() {
 
           {/* Visual shield */}
           <div className="mx-auto mt-16 max-w-2xl">
-            <div className="relative flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] p-10 backdrop-blur">
+            <div className="relative flex items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] p-10 shadow-2xl shadow-black/20 backdrop-blur-md transition-transform duration-500 hover:scale-[1.01]">
               <div className="relative flex h-40 w-40 items-center justify-center sm:h-48 sm:w-48">
                 <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-trust-500/30 to-securex-500/30 blur-2xl" />
                 <div className="absolute inset-4 rounded-full border border-dashed border-white/20" />
-                <div className="relative flex h-32 w-32 items-center justify-center rounded-2xl bg-gradient-to-br from-trust-500 to-securex-600 shadow-2xl sm:h-40 sm:w-40">
+                <div className="relative flex h-32 w-32 items-center justify-center rounded-3xl bg-gradient-to-br from-trust-500 to-securex-600 shadow-2xl shadow-trust-500/20 transition-transform duration-500 hover:rotate-2 hover:scale-105 sm:h-40 sm:w-40">
                   <Shield className="h-16 w-16 text-white sm:h-20 sm:w-20" />
                 </div>
                 <span className="absolute -right-1 top-6 flex h-9 w-9 items-center justify-center rounded-full bg-white text-trust-600 shadow-lg">
@@ -174,7 +176,7 @@ export default function HomePage() {
             {FEATURES.map((feature) => (
               <div
                 key={feature.title}
-                className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md"
+               className="group rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
               >
                 <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-securex-50 text-securex-600">
                   <feature.icon className="h-6 w-6" />
