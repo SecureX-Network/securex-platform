@@ -12,7 +12,7 @@ import {
 } from '@/components/ui';
 import type { TabItem } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import { getHolderCredentials } from '@/services/api/credentialService';
+import { getHolderCredentialsView } from '@/features/holder-admin/services/holderAdminService';
 import type { Credential } from '@/types';
 
 type StatusFilter = 'ALL' | 'VALID' | 'EXPIRED' | 'REVOKED' | 'SUSPENDED';
@@ -42,7 +42,7 @@ export default function HolderCredentialsPage() {
   const loadCredentials = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getHolderCredentials(holderId);
+      const data = await getHolderCredentialsView(holderId);
       setCredentials(data);
     } catch {
       setCredentials([]);

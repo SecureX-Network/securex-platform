@@ -11,7 +11,7 @@ import {
   Skeleton,
 } from '@/components/ui';
 import type { Column } from '@/components/ui';
-import { getAuditEvents } from '@/services/api/adminService';
+import { getRealAuditEvents } from '@/features/holder-admin/services/holderAdminService';
 import type { AuditEvent } from '@/types';
 import { formatDate } from '@/utils';
 
@@ -27,7 +27,7 @@ export default function AdminSecurityAuditPage() {
 
   useEffect(() => {
     let active = true;
-    getAuditEvents()
+    getRealAuditEvents()
       .then((data) => active && setEvents(data))
       .catch(() => active && setEvents([]))
       .finally(() => active && setLoading(false));

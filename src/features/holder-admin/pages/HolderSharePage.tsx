@@ -21,7 +21,7 @@ import {
   Spinner,
 } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import { getHolderCredentials } from '@/services/api/credentialService';
+import { getHolderCredentialsView, getRealQrReference } from '@/features/holder-admin/services/holderAdminService';
 import type { Credential } from '@/types';
 import { formatDate } from '@/utils';
 
@@ -50,11 +50,12 @@ export default function HolderSharePage() {
   const [expiry, setExpiry] = useState('7d');
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [recentShares, setRecentShares] = useState<ShareRecord[]>([]);
+  const [qrHref, setQrHref] = useState<string | null>(null);
 
   const loadCredentials = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getHolderCredentials(holderId);
+      const data = await getHolderCredentialsView(holderId);
       setCredentials(data.filter((c) => c.status === 'VALID'));
       if (data.length > 0) {
         const valid = data.find((c) => c.status === 'VALID');
@@ -80,6 +81,21 @@ export default function HolderSharePage() {
     [credentials, selectedId],
   );
 
+  useEffect(() => {
+    let active = true;
+    if (!selectedCredential) {
+      setQrHref(null);
+      return;
+    }
+    setQrHref(null);
+    getRealQrReference(selectedCredential.credentialId)
+      .then((ref) => active && setQrHref(ref.verificationUrl))
+      .catch(() => active && setQrHref(null));
+    return () => {
+      active = false;
+    };
+  }, [selectedCredential]);
+
   const credentialOptions = useMemo(
     () =>
       credentials.map((c) => ({
@@ -91,7 +107,7 @@ export default function HolderSharePage() {
 
   const generateLink = () => {
     if (!selectedCredential) return;
-    const base = `${window.location.origin}/verify/${selectedCredential.credentialId}`;
+    const base = qrHref ?? `${window.location.origin}/verify/${selectedCredential.credentialId}`;
     const expiresAfter =
       expiry === 'never' ? null : expiry === '1d' ? 1 : expiry === '30d' ? 30 : 7;
     const link =
@@ -120,7 +136,7 @@ export default function HolderSharePage() {
       `Credential: ${selectedCredential.title}`,
     );
     const body = encodeURIComponent(
-      `Here is a secure verification link for my credential "${selectedCredential.title}":\n\n${window.location.origin}/verify/${selectedCredential.credentialId}`,
+      `Here is a secure verification link for my credential "${selectedCredential.title}":\n\n${qrHref ?? `${window.location.origin}/verify/${selectedCredential.credentialId}`}`,
     );
     setRecentShares((prev) => [
       {
@@ -212,7 +228,7 @@ export default function HolderSharePage() {
           <div className="flex h-44 w-44 items-center justify-center rounded-lg border border-neutral-200 bg-white p-2">
             {selectedCredential ? (
               <QRCodeSVG
-                value={`${window.location.origin}/verify/${selectedCredential.credentialId}`}
+                value={qrHref ?? `${window.location.origin}/verify/${selectedCredential.credentialId}`}
                 size={152}
                 level="M"
                 includeMargin={false}

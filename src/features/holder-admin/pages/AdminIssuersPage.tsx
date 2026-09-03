@@ -12,7 +12,7 @@ import {
   Skeleton,
 } from '@/components/ui';
 import type { Column } from '@/components/ui';
-import { getAllIssuers } from '@/services/api/adminService';
+import { getRealIssuers } from '@/features/holder-admin/services/holderAdminService';
 import { issuerStatusBadgeVariant } from '@/constants/badges';
 import type { Issuer } from '@/types';
 import { formatDate, truncateHash } from '@/utils';
@@ -28,7 +28,7 @@ export default function AdminIssuersPage() {
 
   useEffect(() => {
     let active = true;
-    getAllIssuers()
+    getRealIssuers()
       .then((data) => active && setIssuers(data))
       .catch(() => active && setIssuers([]))
       .finally(() => active && setLoading(false));

@@ -25,7 +25,8 @@ import {
   Spinner,
   StatusIndicator,
 } from '@/components/ui';
-import { getCredentialById } from '@/services/api/credentialService';
+import { getRealCredential, getRealCredentialHistory } from '@/features/holder-admin/services/holderAdminService';
+import type { ApiCredentialHistoryEntry } from '@/features/holder-admin/types/backend';
 import type { Credential } from '@/types';
 import { formatDate, truncateHash } from '@/utils';
 
@@ -49,6 +50,10 @@ interface LifecycleEvent {
   date: string;
   icon: typeof CheckCircle2;
   color: string;
+  key?: string;
+  onChain?: boolean;
+  txId?: string;
+  blockHeight?: number;
 }
 
 function buildLifecycleHistory(credential: Credential): LifecycleEvent[] {
@@ -142,11 +147,13 @@ export default function HolderCredentialDetailPage() {
   const [credential, setCredential] = useState<Credential | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [realHistory, setRealHistory] = useState<ApiCredentialHistoryEntry[]>([]);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getCredentialById(credentialId)
+    setRealHistory([]);
+    getRealCredential(credentialId)
       .then((data) => {
         if (active) setCredential(data);
       })
@@ -156,6 +163,9 @@ export default function HolderCredentialDetailPage() {
       .finally(() => {
         if (active) setLoading(false);
       });
+    getRealCredentialHistory(credentialId)
+      .then((history) => active && setRealHistory(history))
+      .catch(() => active && setRealHistory([]));
     return () => {
       active = false;
     };
@@ -188,6 +198,25 @@ export default function HolderCredentialDetailPage() {
 
   const tone = statusTone[credential.status];
   const lifecycle = buildLifecycleHistory(credential);
+
+  const realEvents = realHistory.map((event, index) => ({
+    type: event.type,
+    label: `${event.type.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} on-chain`,
+    date: event.timestamp,
+    icon: event.type === 'REVOKED' ? ShieldX : event.type.includes('SUSPEND') ? ShieldAlert : CheckCircle2,
+    color:
+      event.type === 'REVOKED'
+        ? 'bg-danger-50 text-danger-600'
+        : event.type.includes('SUSPEND')
+          ? 'bg-warning-50 text-warning-600'
+          : 'bg-trust-50 text-trust-600',
+    txId: event.txId,
+    blockHeight: event.blockHeight,
+    key: `${event.type}-${index}`,
+    onChain: true,
+  }));
+  const shownLifecycle =
+    realEvents.length > 0 ? realEvents : lifecycle;
 
   const handleCopy = async () => {
     const link = `${window.location.origin}/verify/${credential.credentialId}`;
@@ -334,7 +363,7 @@ export default function HolderCredentialDetailPage() {
         </div>
       </Card>
 
-      {lifecycle.length > 0 && (
+      {shownLifecycle.length > 0 && (
         <Card>
           <div className="mb-3 flex items-center gap-2">
             <Clock className="h-4 w-4 text-neutral-400" />
@@ -343,11 +372,11 @@ export default function HolderCredentialDetailPage() {
             </h2>
           </div>
           <div className="relative ml-3 border-l-2 border-neutral-200 pl-6">
-            {lifecycle.map((event, index) => {
+            {shownLifecycle.map((event) => {
               const Icon = event.icon;
               return (
                 <div
-                  key={`${event.type}-${index}`}
+                  key={event.key ?? `${event.type}-${event.date}`}
                   className="relative pb-6 last:pb-0"
                 >
                   <span
@@ -367,6 +396,14 @@ export default function HolderCredentialDetailPage() {
                       minute: '2-digit',
                     })}
                   </p>
+                  {event.onChain && event.txId && (
+                    <p className="mt-0.5 font-mono text-[11px] text-neutral-400">
+                      tx {truncateHash(event.txId)}
+                      {event.blockHeight !== undefined && (
+                        <> \u00b7 block #{event.blockHeight}</>
+                      )}
+                    </p>
+                  )}
                 </div>
               );
             })}

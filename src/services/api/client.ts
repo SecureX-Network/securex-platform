@@ -55,7 +55,38 @@ export function unwrapResponse<T>(response: ApiResponse<T>): T {
   return response.data;
 }
 
-async function requestJson<T>(baseUrl: string, url: string, options: RequestInit): Promise<T> {
+// Backend failure envelope (mirrors securex-blockchain src/api/middleware.ts):
+// { success: false, error: <string code>, message: <human-readable>, errorCode }
+interface ErrorPayload {
+  success: boolean;
+  error?: string | { code?: string; message?: string };
+  message?: string;
+  errorCode?: string;
+}
+
+function extractErrorMessage(
+  payload: ErrorPayload | null,
+  fallback: string,
+): string {
+  if (!payload) return fallback;
+  const error = payload.error;
+  if (typeof error === 'string') {
+    // Prefer the human-readable `message` (e.g. "Issuer not found") over the
+    // machine error code (e.g. "UNKNOWN_ISSUER") when both are present.
+    return payload.message && payload.message !== error ? payload.message : error;
+  }
+  if (error?.message) return error.message;
+  if (payload.message) return payload.message;
+  if (payload.errorCode) return payload.errorCode;
+  return fallback;
+}
+
+async function requestJson<T>(
+  baseUrl: string,
+  url: string,
+  options: RequestInit,
+  timeoutMs = 15000,
+): Promise<T> {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
@@ -63,35 +94,44 @@ async function requestJson<T>(baseUrl: string, url: string, options: RequestInit
     headers.set('Authorization', `Bearer ${token}`);
   }
 
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}${url}`, { ...options, headers });
-  } catch {
-    throw new ApiError('Unable to reach the service. Please check your connection and try again.', 0);
+    response = await fetch(`${baseUrl}${url}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiError('The request timed out. Please try again.', 0);
+    }
+    throw new ApiError(
+      'Unable to reach the service. Please check your connection and try again.',
+      0,
+    );
+  } finally {
+    window.clearTimeout(timer);
   }
 
-  const payload = (await response.json().catch(() => null)) as {
-    success: boolean;
-    data?: T;
-    error?: string | { code?: string; message?: string };
-  } | null;
+  const payload = (await response.json().catch(() => null)) as
+    | (ErrorPayload & { data?: T })
+    | null;
 
   if (!response.ok) {
-    const error = payload?.error;
-    const message =
-      typeof error === 'string'
-        ? error
-        : error?.message ?? `Request failed with status ${response.status}`;
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      extractErrorMessage(payload, `Request failed with status ${response.status}`),
+      response.status,
+    );
   }
 
   if (!payload?.success || payload.data === undefined) {
-    const error = payload?.error;
-    const message =
-      typeof error === 'string'
-        ? error
-        : error?.message ?? 'The service returned an unexpected response.';
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      extractErrorMessage(payload, 'The service returned an unexpected response.'),
+      response.status,
+    );
   }
 
   return payload.data;
