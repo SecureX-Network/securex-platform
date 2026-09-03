@@ -120,6 +120,7 @@ export default function EmployerVerifyPage() {
               onChange={(e) => setCredentialId(e.target.value)}
               leftIcon={<Search className="h-4 w-4" />}
               className="font-mono"
+              aria-label="Credential ID to verify"
             />
             <Button
               type="submit"
@@ -133,11 +134,11 @@ export default function EmployerVerifyPage() {
 
           <div className="mt-6 border-t border-neutral-100 pt-5">
             <p className="mb-3 flex items-center gap-2 text-sm font-medium text-neutral-700">
-              <QrCode className="h-4 w-4 text-neutral-400" />
+              <QrCode className="h-4 w-4 text-neutral-400" aria-hidden="true" />
               Scan QR Code
             </p>
-            <div className="flex h-40 flex-col items-center justify-center rounded-xl border-2 border-dashed border-neutral-200 bg-neutral-50/60">
-              <ScanLine className="h-8 w-8 text-neutral-300" />
+            <div className="flex h-32 flex-col items-center justify-center rounded-xl border-2 border-dashed border-neutral-200 bg-neutral-50/60">
+              <ScanLine className="h-7 w-7 text-neutral-300" aria-hidden="true" />
               <p className="mt-2 text-xs text-neutral-400">
                 QR scanner integration coming soon
               </p>
@@ -148,20 +149,20 @@ export default function EmployerVerifyPage() {
         <Card title="How it works" padding="lg" className="h-fit">
           <ol className="space-y-4 text-sm text-neutral-600">
             <li className="flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-securex-50 text-xs font-semibold text-securex-600">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-securex-50 text-xs font-semibold text-securex-600" aria-hidden="true">
                 1
               </span>
-              Enter the credential ID from the candidate's digital wallet.
+              Enter the credential ID from the candidate&apos;s digital wallet.
             </li>
             <li className="flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-securex-50 text-xs font-semibold text-securex-600">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-securex-50 text-xs font-semibold text-securex-600" aria-hidden="true">
                 2
               </span>
               SecureX checks the ledger record, digital signature, and fraud
               engine.
             </li>
             <li className="flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-securex-50 text-xs font-semibold text-securex-600">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-securex-50 text-xs font-semibold text-securex-600" aria-hidden="true">
                 3
               </span>
               Receive an instant risk assessment with full proof details.
@@ -198,7 +199,7 @@ export default function EmployerVerifyPage() {
       {loading && (
         <Card padding="lg">
           <div className="flex flex-col items-center py-8 text-center">
-            <Spinner size="lg" color="#4f46e5" />
+            <Spinner size="lg" label="Verifying credential" />
             <p className="mt-4 text-sm font-medium text-neutral-700">
               Verifying credential against the SecureX ledger...
             </p>

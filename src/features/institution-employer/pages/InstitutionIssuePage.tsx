@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -43,54 +44,94 @@ export default function InstitutionIssuePage() {
     templateId: '',
     expiresAt: '',
   });
+  const [formErrors, setFormErrors] = useState({
+    type: '',
+    title: '',
+    holderName: '',
+    holderEmail: '',
+  });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [issuedId, setIssuedId] = useState('');
 
-  const update = (field: string, value: string) =>
+  const update = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+    if (formErrors[field as keyof typeof formErrors]) {
+      setFormErrors((prev) => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const markTouched = (field: string) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+  };
 
   const selectedTemplate = MOCK_TEMPLATES.find((t) => t.id === form.templateId);
 
-  const isValid = form.type && form.title && form.holderName && form.holderEmail;
+  const isValid =
+    Boolean(form.type) &&
+    Boolean(form.title) &&
+    Boolean(form.holderName) &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.holderEmail);
 
-  const handleSubmit = useCallback(
+  const validateAndSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!isValid) return;
+      const errors = { type: '', title: '', holderName: '', holderEmail: '' };
+      if (!form.type) errors.type = 'Please select a credential type.';
+      if (!form.title.trim()) errors.title = 'Title is required.';
+      if (!form.holderName.trim()) errors.holderName = 'Holder name is required.';
+      if (!form.holderEmail.trim()) {
+        errors.holderEmail = 'Holder email is required.';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.holderEmail)) {
+        errors.holderEmail = 'Please enter a valid email address.';
+      }
+
+      const hasErrors = Object.values(errors).some(Boolean);
+      setFormErrors(errors);
+      setTouched({ type: true, title: true, holderName: true, holderEmail: true });
+
+      if (hasErrors) return;
+
       setSubmitting(true);
       try {
-        const result = await issueCredential({
-          type: form.type,
-          title: form.title,
-          description: form.description,
-          holderName: form.holderName,
-          holderId: `holder-${Date.now()}`,
-          issuerId: 'iss-stanford-registrar',
-          issuerName: 'Stanford Office of the Registrar',
-          institutionId: user?.institutionId ?? 'inst-stanford',
-          institutionName: 'Stanford University',
-          templateId: form.templateId || undefined,
-          expiresAt: form.expiresAt || undefined,
-        });
-        setIssuedId(result.credentialId);
-        setShowSuccess(true);
-        setForm({
-          type: '',
-          title: '',
-          description: '',
-          holderName: '',
-          holderEmail: '',
-          templateId: '',
-          expiresAt: '',
-        });
-      } catch {
-        /* ignore */
-      } finally {
-        setSubmitting(false);
-      }
+      const result = await issueCredential({
+        type: form.type,
+        title: form.title,
+        description: form.description,
+        holderName: form.holderName,
+        holderId: `holder-${Date.now()}`,
+        issuerId: 'iss-stanford-registrar',
+        issuerName: 'Stanford Office of the Registrar',
+        institutionId: user?.institutionId ?? 'inst-stanford',
+        institutionName: 'Stanford University',
+        templateId: form.templateId || undefined,
+        expiresAt: form.expiresAt || undefined,
+      });
+      setIssuedId(result.credentialId);
+      setShowSuccess(true);
+      setSubmitError(null);
+      setForm({
+        type: '',
+        title: '',
+        description: '',
+        holderName: '',
+        holderEmail: '',
+        templateId: '',
+        expiresAt: '',
+      });
+      setTouched({});
+      setFormErrors({ type: '', title: '', holderName: '', holderEmail: '' });
+    } catch {
+      setSubmitError(
+        'Unable to issue the credential at this time. Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
     },
-    [form, isValid, user],
+    [form, user],
   );
 
   return (
@@ -98,6 +139,7 @@ export default function InstitutionIssuePage() {
       <div className="flex items-center gap-3">
         <Link
           to="/institution/dashboard"
+          aria-label="Back to dashboard"
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -113,8 +155,14 @@ export default function InstitutionIssuePage() {
         </div>
       </div>
 
+      {submitError && (
+        <Alert variant="error" title="Unable to issue credential">
+          {submitError}
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <form onSubmit={handleSubmit} className="space-y-5 lg:col-span-3">
+        <form onSubmit={validateAndSubmit} className="space-y-5 lg:col-span-3" noValidate>
           <Card title="Credential Details" padding="lg">
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -127,6 +175,7 @@ export default function InstitutionIssuePage() {
                   placeholder="Select type"
                   value={form.type}
                   onChange={(e) => update('type', e.target.value)}
+                  error={touched.type ? formErrors.type || undefined : undefined}
                 />
                 <Select
                   label="Template (optional)"
@@ -144,6 +193,8 @@ export default function InstitutionIssuePage() {
                 placeholder="e.g. Bachelor of Science in Computer Science"
                 value={form.title}
                 onChange={(e) => update('title', e.target.value)}
+                onBlur={() => markTouched('title')}
+                error={touched.title ? formErrors.title || undefined : undefined}
               />
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-neutral-700">
@@ -168,6 +219,8 @@ export default function InstitutionIssuePage() {
                 leftIcon={<User className="h-4 w-4" />}
                 value={form.holderName}
                 onChange={(e) => update('holderName', e.target.value)}
+                onBlur={() => markTouched('holderName')}
+                error={touched.holderName ? formErrors.holderName || undefined : undefined}
               />
               <Input
                 label="Holder Email"
@@ -176,6 +229,8 @@ export default function InstitutionIssuePage() {
                 leftIcon={<Mail className="h-4 w-4" />}
                 value={form.holderEmail}
                 onChange={(e) => update('holderEmail', e.target.value)}
+                onBlur={() => markTouched('holderEmail')}
+                error={touched.holderEmail ? formErrors.holderEmail || undefined : undefined}
               />
               <Input
                 label="Expiry Date (optional)"
@@ -205,7 +260,7 @@ export default function InstitutionIssuePage() {
         </form>
 
         <div className="lg:col-span-2">
-          <Card title="Preview" padding="lg" className="sticky top-6">
+          <Card title="Preview" padding="lg" className="lg:sticky lg:top-20">
             <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-5">
               <div className="flex items-start gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-securex-600 text-white">
@@ -248,9 +303,7 @@ export default function InstitutionIssuePage() {
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-neutral-500">Issued</span>
-                  <span className="font-medium text-neutral-800">
-                    {formatDate(new Date().toISOString())}
-                  </span>
+                  <span className="font-medium text-neutral-800">—</span>
                 </div>
                 {form.expiresAt && (
                   <div className="flex justify-between text-xs">

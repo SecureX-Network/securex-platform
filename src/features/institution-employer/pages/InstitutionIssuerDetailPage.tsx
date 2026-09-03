@@ -17,12 +17,14 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorState,
   Skeleton,
 } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { getIssuers } from '@/services/api/institutionService';
 import { getCredentials } from '@/services/api/credentialService';
 import { formatDate, truncateHash } from '@/utils/format';
+import { getIssuerStatusBadgeVariant, getStatusBadgeVariant } from '@/utils/status';
 import type { Credential, Issuer } from '@/types';
 
 export default function InstitutionIssuerDetailPage() {
@@ -33,10 +35,12 @@ export default function InstitutionIssuerDetailPage() {
   const [issuer, setIssuer] = useState<Issuer | null>(null);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [updating, setUpdating] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const [issuers, creds] = await Promise.all([
         getIssuers(institutionId),
@@ -53,7 +57,7 @@ export default function InstitutionIssuerDetailPage() {
           ),
       );
     } catch {
-      /* ignore */
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -107,12 +111,6 @@ export default function InstitutionIssuerDetailPage() {
     }
   };
 
-  const statusVariant: Record<string, 'success' | 'danger' | 'warning'> = {
-    ACTIVE: 'success',
-    SUSPENDED: 'warning',
-    REVOKED: 'danger',
-  };
-
   if (loading) {
     return (
       <div className="space-y-6">
@@ -123,6 +121,24 @@ export default function InstitutionIssuerDetailPage() {
             <Skeleton key={i} className="h-28 rounded-xl" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <Breadcrumb
+          items={[
+            { label: 'Issuers', href: '/institution/issuers' },
+            { label: 'Issuer Details', active: true },
+          ]}
+        />
+        <ErrorState
+          title="Failed to load issuer"
+          description="There was a problem loading the issuer details. Please try again."
+          onRetry={loadData}
+        />
       </div>
     );
   }
@@ -160,6 +176,7 @@ export default function InstitutionIssuerDetailPage() {
           <div className="flex items-center gap-3">
             <Link
               to="/institution/issuers"
+              aria-label="Back to issuers"
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -168,7 +185,7 @@ export default function InstitutionIssuerDetailPage() {
               <ShieldCheck className="h-5 w-5 text-securex-600" />
               {issuer.name}
             </h1>
-            <Badge variant={statusVariant[issuer.status] ?? 'default'} dot>
+            <Badge variant={getIssuerStatusBadgeVariant(issuer.status)} dot>
               {issuer.status}
             </Badge>
           </div>
@@ -181,6 +198,7 @@ export default function InstitutionIssuerDetailPage() {
               isLoading={updating}
               leftIcon={<Ban className="h-4 w-4" />}
               onClick={toggleStatus}
+              aria-label={`Suspend issuer ${issuer.name}`}
             >
               Suspend Issuer
             </Button>
@@ -191,6 +209,7 @@ export default function InstitutionIssuerDetailPage() {
               isLoading={updating}
               leftIcon={<RotateCcw className="h-4 w-4" />}
               onClick={toggleStatus}
+              aria-label={`Reactivate issuer ${issuer.name}`}
             >
               Reactivate Issuer
             </Button>
@@ -217,7 +236,7 @@ export default function InstitutionIssuerDetailPage() {
                 Contact Email
               </p>
               <p className="mt-1 flex items-center gap-1.5 text-sm text-neutral-800">
-                <Mail className="h-4 w-4 text-neutral-400" />
+                <Mail className="h-4 w-4 text-neutral-400" aria-hidden="true" />
                 {issuer.email}
               </p>
             </div>
@@ -233,7 +252,7 @@ export default function InstitutionIssuerDetailPage() {
         </div>
 
         <div className="mt-5 flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50/60 px-4 py-3">
-          <KeyRound className="h-4 w-4 shrink-0 text-neutral-400" />
+          <KeyRound className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden="true" />
           <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
             Public Key
           </span>
@@ -293,8 +312,9 @@ export default function InstitutionIssuerDetailPage() {
                 </div>
                 <div className="ml-4 flex items-center gap-3">
                   <Badge
-                    variant={statusVariant[cred.status] ?? 'default'}
+                    variant={getStatusBadgeVariant(cred.status)}
                     size="sm"
+                    dot
                   >
                     {cred.status}
                   </Badge>

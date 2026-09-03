@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorState,
   Input,
   Modal,
   Select,
@@ -20,6 +21,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { getIssuers } from '@/services/api/institutionService';
 import { formatDate, truncateHash } from '@/utils/format';
+import { getIssuerStatusBadgeVariant } from '@/utils/status';
 import type { Issuer } from '@/types';
 
 export default function InstitutionIssuersPage() {
@@ -28,20 +30,21 @@ export default function InstitutionIssuersPage() {
 
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [showAdd, setShowAdd] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    email: '',
-  });
+  const [form, setForm] = useState({ name: '', email: '' });
+  const [formErrors, setFormErrors] = useState({ name: '', email: '' });
 
   const loadIssuers = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const data = await getIssuers(institutionId);
       setIssuers(data);
     } catch {
+      setError(true);
       setIssuers([]);
     } finally {
       setLoading(false);
@@ -67,31 +70,81 @@ export default function InstitutionIssuersPage() {
     [issuers],
   );
 
-  const statusVariant: Record<string, 'success' | 'danger' | 'warning'> = {
-    ACTIVE: 'success',
-    SUSPENDED: 'warning',
-    REVOKED: 'danger',
+  const validateForm = () => {
+    const errors = { name: '', email: '' };
+    if (!form.name.trim()) {
+      errors.name = 'Issuer name is required.';
+    } else if (form.name.trim().length < 3) {
+      errors.name = 'Issuer name must be at least 3 characters.';
+    }
+    if (!form.email.trim()) {
+      errors.email = 'Contact email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      errors.email = 'Please enter a valid email address.';
+    }
+    setFormErrors(errors);
+    return !errors.name && !errors.email;
   };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.email) return;
+    if (!validateForm()) return;
     setAdding(true);
     try {
       await new Promise((resolve) => setTimeout(resolve, 600));
       setShowAdd(false);
       setForm({ name: '', email: '' });
+      setFormErrors({ name: '', email: '' });
       await loadIssuers();
     } finally {
       setAdding(false);
     }
   };
 
+  const openAddModal = () => {
+    setForm({ name: '', email: '' });
+    setFormErrors({ name: '', email: '' });
+    setShowAdd(true);
+  };
+
   const stats = [
-    { label: 'Total Issuers', value: counts.total },
-    { label: 'Active Issuers', value: counts.active },
-    { label: 'Credentials Issued', value: counts.credentials.toLocaleString() },
+    {
+      label: 'Total Issuers',
+      value: counts.total,
+      icon: Building2,
+      color: 'bg-securex-50 text-securex-600',
+    },
+    {
+      label: 'Active Issuers',
+      value: counts.active,
+      icon: ShieldCheck,
+      color: 'bg-trust-50 text-trust-600',
+    },
+    {
+      label: 'Credentials Issued',
+      value: counts.credentials.toLocaleString(),
+      icon: KeyRound,
+      color: 'bg-purple-50 text-purple-600',
+    },
   ];
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-bold text-neutral-900">Issuers</h1>
+          <p className="text-sm text-neutral-500">
+            Manage signing authorities and public keys for your institution.
+          </p>
+        </div>
+        <ErrorState
+          title="Failed to load issuers"
+          description="There was a problem loading your issuers. Please try again."
+          onRetry={loadIssuers}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -104,34 +157,47 @@ export default function InstitutionIssuersPage() {
         </div>
         <Button
           leftIcon={<Plus className="h-4 w-4" />}
-          onClick={() => setShowAdd(true)}
+          onClick={openAddModal}
         >
           Add Issuer
         </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {stats.map((stat) => (
-          <Card key={stat.label} padding="md">
-            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
-              {stat.label}
-            </p>
-            <p className="mt-1 text-2xl font-bold text-neutral-900">
-              {loading ? <Skeleton className="h-7 w-16" /> : stat.value}
-            </p>
-          </Card>
-        ))}
+        {stats.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <Card key={stat.label} padding="md">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                    {stat.label}
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-neutral-900">
+                    {loading ? <Skeleton className="h-7 w-16" /> : stat.value}
+                  </p>
+                </div>
+                <span
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl ${stat.color}`}
+                >
+                  <Icon className="h-5 w-5" />
+                </span>
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       <Card padding="none">
         <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-3">
           <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-neutral-400" />
+            <Building2 className="h-4 w-4 text-neutral-400" aria-hidden="true" />
             <span className="text-sm font-medium text-neutral-700">
               Issuer Directory
             </span>
           </div>
           <Select
+            aria-label="Filter issuers by status"
             options={[
               { label: 'All Statuses', value: 'ALL' },
               { label: 'Active', value: 'ACTIVE' },
@@ -164,11 +230,11 @@ export default function InstitutionIssuersPage() {
               <Link
                 key={issuer.id}
                 to={`/institution/issuers/${issuer.id}`}
-                className="rounded-xl border border-neutral-200 bg-white p-5 shadow-securex transition-colors hover:border-securex-200 hover:bg-securex-50/30"
+                className="group rounded-xl border border-neutral-200 bg-white p-5 shadow-securex transition-all hover:border-securex-200 hover:bg-securex-50/30 hover:shadow-securex-md"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-securex-50 text-securex-600">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-securex-50 text-securex-600 transition-colors group-hover:bg-securex-100">
                       <ShieldCheck className="h-5 w-5" />
                     </span>
                     <div>
@@ -181,7 +247,7 @@ export default function InstitutionIssuersPage() {
                     </div>
                   </div>
                   <Badge
-                    variant={statusVariant[issuer.status] ?? 'default'}
+                    variant={getIssuerStatusBadgeVariant(issuer.status)}
                     size="sm"
                     dot
                   >
@@ -205,7 +271,7 @@ export default function InstitutionIssuersPage() {
                 </div>
 
                 <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-neutral-50 px-3 py-2">
-                  <KeyRound className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                  <KeyRound className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden="true" />
                   <span className="font-mono text-[11px] text-neutral-500">
                     {truncateHash(issuer.publicKey, 14, 10)}
                   </span>
@@ -230,7 +296,7 @@ export default function InstitutionIssuersPage() {
             <Button
               onClick={handleAdd}
               isLoading={adding}
-              disabled={!form.name || !form.email}
+              disabled={adding}
             >
               Add Issuer
             </Button>
@@ -243,7 +309,11 @@ export default function InstitutionIssuersPage() {
             placeholder="e.g. Stanford Office of the Registrar"
             leftIcon={<Building2 className="h-4 w-4" />}
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, name: e.target.value });
+              if (formErrors.name) setFormErrors({ ...formErrors, name: '' });
+            }}
+            error={formErrors.name || undefined}
           />
           <Input
             label="Contact Email"
@@ -251,7 +321,11 @@ export default function InstitutionIssuersPage() {
             placeholder="issuer@institution.edu"
             leftIcon={<Mail className="h-4 w-4" />}
             value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, email: e.target.value });
+              if (formErrors.email) setFormErrors({ ...formErrors, email: '' });
+            }}
+            error={formErrors.email || undefined}
           />
           <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 text-xs text-neutral-500">
             A signing key pair will be generated for this issuer. The public key

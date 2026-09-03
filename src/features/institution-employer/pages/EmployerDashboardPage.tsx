@@ -12,16 +12,19 @@ import {
   Users,
 } from 'lucide-react';
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
+  ErrorState,
   Input,
   Skeleton,
 } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { getVerificationHistory } from '@/services/api/verificationService';
 import { formatDate } from '@/utils/format';
-import type { VerificationHistory } from '@/types';
+import { getStatusBadgeVariant } from '@/utils/status';
+import type { VerificationHistory, CredentialStatus } from '@/types';
 
 export default function EmployerDashboardPage() {
   const { user } = useAuth();
@@ -30,14 +33,17 @@ export default function EmployerDashboardPage() {
 
   const [history, setHistory] = useState<VerificationHistory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const data = await getVerificationHistory(employerId);
       setHistory(data);
     } catch {
+      setError(true);
       setHistory([]);
     } finally {
       setLoading(false);
@@ -94,26 +100,38 @@ export default function EmployerDashboardPage() {
     },
   ];
 
-  const resultColor = (result: string) => {
-    switch (result) {
-      case 'VALID':
-        return 'text-trust-600';
-      case 'SUSPENDED':
-      case 'SUSPICIOUS':
-        return 'text-warning-600';
-      case 'REVOKED':
-      case 'TAMPERED':
-        return 'text-danger-600';
-      default:
-        return 'text-neutral-600';
-    }
-  };
-
   const handleQuickVerify = (e: React.FormEvent) => {
     e.preventDefault();
     if (!search.trim()) return;
     navigate(`/employer/verify?credentialId=${encodeURIComponent(search.trim())}`);
   };
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <section>
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-securex-600 text-white">
+              <Building2 className="h-5 w-5" />
+            </span>
+            <div>
+              <h1 className="text-xl font-bold text-neutral-900">
+                Welcome back, {user?.name?.split(' ')[0] ?? 'there'}
+              </h1>
+              <p className="text-sm text-neutral-500">
+                Hiring pipeline insights and recent credential verifications.
+              </p>
+            </div>
+          </div>
+        </section>
+        <ErrorState
+          title="Failed to load dashboard"
+          description="There was a problem loading your verification data. Please try again."
+          onRetry={loadHistory}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -149,6 +167,7 @@ export default function EmployerDashboardPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="bg-white/95"
                 leftIcon={<Search className="h-4 w-4" />}
+                aria-label="Credential ID for quick verify"
               />
               <Button type="submit" size="sm" variant="secondary">
                 Verify
@@ -223,11 +242,13 @@ export default function EmployerDashboardPage() {
                     </p>
                   </div>
                   <div className="ml-4 flex items-center gap-3">
-                    <span
-                      className={`text-xs font-semibold ${resultColor(item.result)}`}
+                    <Badge
+                      variant={getStatusBadgeVariant(item.result as CredentialStatus)}
+                      size="sm"
+                      dot
                     >
                       {item.result}
-                    </span>
+                    </Badge>
                     <span className="whitespace-nowrap text-xs text-neutral-400">
                       {formatDate(item.verifiedAt)}
                     </span>
@@ -247,30 +268,36 @@ export default function EmployerDashboardPage() {
         </Card>
 
         <Card title="Actions" padding="md">
-          <div className="space-y-3">
-            <Link
-              to="/employer/verify"
-              className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 transition-colors hover:border-securex-200 hover:bg-securex-50/40"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-securex-50 text-securex-600">
-                <ScanSearch className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-medium text-neutral-700">
-                Verify a Credential
-              </span>
-            </Link>
-            <Link
-              to="/employer/history"
-              className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 transition-colors hover:border-securex-200 hover:bg-securex-50/40"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600">
-                <FileCheck className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-medium text-neutral-700">
-                View History
-              </span>
-            </Link>
-          </div>
+          <nav aria-label="Employer actions">
+            <ul className="space-y-3">
+              <li>
+                <Link
+                  to="/employer/verify"
+                  className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 transition-colors hover:border-securex-200 hover:bg-securex-50/40"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-securex-50 text-securex-600">
+                    <ScanSearch className="h-5 w-5" />
+                  </span>
+                  <span className="text-sm font-medium text-neutral-700">
+                    Verify a Credential
+                  </span>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/employer/history"
+                  className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 transition-colors hover:border-securex-200 hover:bg-securex-50/40"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600">
+                    <FileCheck className="h-5 w-5" />
+                  </span>
+                  <span className="text-sm font-medium text-neutral-700">
+                    View History
+                  </span>
+                </Link>
+              </li>
+            </ul>
+          </nav>
         </Card>
       </div>
 
@@ -288,7 +315,7 @@ export default function EmployerDashboardPage() {
             </p>
           </div>
         </div>
-        <div className="mt-4 flex h-40 items-center justify-center rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60">
+        <div className="mt-4 flex h-36 items-center justify-center rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60">
           <p className="text-sm text-neutral-400">
             Charts coming soon
           </p>
