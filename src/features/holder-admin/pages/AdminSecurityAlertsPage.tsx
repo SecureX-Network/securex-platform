@@ -16,23 +16,9 @@ import {
 } from '@/components/ui';
 import type { Column } from '@/components/ui';
 import { getSecurityAlerts } from '@/services/api/adminService';
+import { severityBadgeVariant, alertStatusBadgeVariant } from '@/constants/badges';
 import type { SecurityAlert } from '@/types';
 import { formatDate, classNames } from '@/utils';
-
-const severityVariant: Record<SecurityAlert['severity'], 'danger' | 'warning' | 'info'> = {
-  CRITICAL: 'danger',
-  HIGH: 'warning',
-  MEDIUM: 'warning',
-  LOW: 'info',
-};
-
-const statusVariant: Record<SecurityAlert['status'], 'default' | 'success' | 'warning' | 'info' | 'danger'> = {
-  NEW: 'danger',
-  ACKNOWLEDGED: 'warning',
-  INVESTIGATING: 'info',
-  RESOLVED: 'success',
-  DISMISSED: 'default',
-};
 
 export default function AdminSecurityAlertsPage() {
   const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
@@ -48,9 +34,7 @@ export default function AdminSecurityAlertsPage() {
       .then((data) => active && setAlerts(data))
       .catch(() => active && setAlerts([]))
       .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const counts = useMemo(() => {
@@ -80,13 +64,19 @@ export default function AdminSecurityAlertsPage() {
     });
   }, [alerts, search, severityFilter, statusFilter]);
 
+  const updateAlertStatus = (id: string, status: SecurityAlert['status']) => {
+    setAlerts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, status } : a)),
+    );
+  };
+
   const columns: Column<SecurityAlert>[] = useMemo(
     () => [
       {
         key: 'severity',
         header: 'Severity',
         accessor: (row) => (
-          <Badge variant={severityVariant[row.severity]}>{row.severity}</Badge>
+          <Badge variant={severityBadgeVariant[row.severity]}>{row.severity}</Badge>
         ),
         sortable: true,
         sortValue: (row) =>
@@ -116,7 +106,7 @@ export default function AdminSecurityAlertsPage() {
         key: 'status',
         header: 'Status',
         accessor: (row) => (
-          <Badge variant={statusVariant[row.status]}>{row.status}</Badge>
+          <Badge variant={alertStatusBadgeVariant[row.status]}>{row.status}</Badge>
         ),
         sortable: true,
       },
@@ -227,7 +217,7 @@ export default function AdminSecurityAlertsPage() {
             <h2 className="text-base font-semibold text-neutral-900">
               {expandedAlert.title}
             </h2>
-            <Badge variant={severityVariant[expandedAlert.severity]}>
+            <Badge variant={severityBadgeVariant[expandedAlert.severity]}>
               {expandedAlert.severity}
             </Badge>
           </div>
@@ -246,7 +236,7 @@ export default function AdminSecurityAlertsPage() {
             </p>
             <p className="text-neutral-500">
               Status:{' '}
-              <Badge variant={statusVariant[expandedAlert.status]}>
+              <Badge variant={alertStatusBadgeVariant[expandedAlert.status]}>
                 {expandedAlert.status}
               </Badge>
             </p>
@@ -261,12 +251,24 @@ export default function AdminSecurityAlertsPage() {
             {expandedAlert.description}
           </p>
           <div className="mt-4 flex gap-2">
-            <Button size="sm" variant="outline">
-              Acknowledge
-            </Button>
-            <Button size="sm" variant="outline">
-              Investigate
-            </Button>
+            {expandedAlert.status !== 'ACKNOWLEDGED' && expandedAlert.status !== 'INVESTIGATING' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateAlertStatus(expandedAlert.id, 'ACKNOWLEDGED')}
+              >
+                Acknowledge
+              </Button>
+            )}
+            {expandedAlert.status !== 'INVESTIGATING' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateAlertStatus(expandedAlert.id, 'INVESTIGATING')}
+              >
+                Investigate
+              </Button>
+            )}
           </div>
         </div>
       )}

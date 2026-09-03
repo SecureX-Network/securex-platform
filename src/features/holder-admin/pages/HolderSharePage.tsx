@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   CalendarClock,
   Check,
@@ -208,13 +209,19 @@ export default function HolderSharePage() {
           3. Verification QR code
         </h2>
         <div className="flex flex-col items-center gap-3 rounded-xl bg-neutral-50 p-5">
-          <div className="flex h-44 w-44 items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-white">
-            <span className="text-center">
-              <QrCode className="mx-auto h-9 w-9 text-neutral-400" />
-              <span className="mt-1 block font-mono text-[10px] text-neutral-400">
-                {selectedCredential?.credentialId}
+          <div className="flex h-44 w-44 items-center justify-center rounded-lg border border-neutral-200 bg-white p-2">
+            {selectedCredential ? (
+              <QRCodeSVG
+                value={`${window.location.origin}/verify/${selectedCredential.credentialId}`}
+                size={152}
+                level="M"
+                includeMargin={false}
+              />
+            ) : (
+              <span className="text-center">
+                <QrCode className="mx-auto h-9 w-9 text-neutral-400" />
               </span>
-            </span>
+            )}
           </div>
           <p className="text-center text-xs text-neutral-500">
             Display this QR code for a verifier to scan.
@@ -222,9 +229,8 @@ export default function HolderSharePage() {
         </div>
         <p className="mt-3 flex items-start gap-1.5 text-xs text-neutral-500">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
-          The QR code encodes the credential verification identifier. A real QR
-          library will generate a scannable code when backend integration is
-          complete.
+          The QR code encodes the credential verification URL. Verifiers can scan
+          it to instantly verify the credential on the SecureX platform.
         </p>
       </Card>
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowLeft,
   Award,
@@ -381,16 +382,16 @@ export default function HolderCredentialDetailPage() {
           </h2>
         </div>
         <div className="flex flex-col items-center gap-3 rounded-xl bg-neutral-50 p-5">
-          <div className="flex h-40 w-40 items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-white">
-            <span className="text-center">
-              <QrCode className="mx-auto h-8 w-8 text-neutral-400" />
-              <span className="mt-1 block font-mono text-[10px] text-neutral-400">
-                {credential.credentialId}
-              </span>
-            </span>
+          <div className="flex h-40 w-40 items-center justify-center rounded-lg border border-neutral-200 bg-white p-2">
+            <QRCodeSVG
+              value={`${window.location.origin}/verify/${credential.credentialId}`}
+              size={132}
+              level="M"
+              includeMargin={false}
+            />
           </div>
           <p className="text-center text-xs text-neutral-500">
-            Scan to verify this credential securely.
+            Scan this QR code to verify the credential securely.
           </p>
           <Button
             fullWidth

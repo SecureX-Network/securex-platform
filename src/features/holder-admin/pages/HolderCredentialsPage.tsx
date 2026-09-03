@@ -5,6 +5,7 @@ import {
   CredentialCard,
   EmptyState,
   Input,
+  ModeIndicator,
   Select,
   Spinner,
   Tabs,
@@ -110,10 +111,15 @@ export default function HolderCredentialsPage() {
   return (
     <div className="space-y-5">
       <section>
-        <h1 className="text-xl font-bold text-neutral-900">My Credentials</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">
-          Every credential in your wallet, ready to view, verify, and share.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-bold text-neutral-900">My Credentials</h1>
+            <p className="mt-0.5 text-sm text-neutral-500">
+              Every credential in your wallet, ready to view, verify, and share.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <div className="space-y-3">
