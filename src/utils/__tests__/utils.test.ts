@@ -3,8 +3,12 @@ import {
   classNames,
   formatDate,
   generateId,
-  getStatusColor,
+  getInstitutionStatusBadgeVariant,
+  getIssuerStatusBadgeVariant,
+  getStatusBadgeVariant,
+  getStatusBgTextClass,
   getStatusLabel,
+  getStatusTextClass,
   truncateHash,
 } from '@/utils';
 
@@ -36,12 +40,29 @@ describe('truncateHash', () => {
   });
 });
 
-describe('getStatusColor', () => {
-  it('returns valid tailwind classes for known statuses', () => {
-    expect(getStatusColor('VALID')).toContain('bg-green-100');
-    expect(getStatusColor('REVOKED')).toContain('bg-red-100');
-    expect(getStatusColor('SUSPENDED')).toContain('bg-amber-100');
-    expect(getStatusColor('EXPIRED')).toContain('bg-gray-100');
+describe('getStatusBadgeVariant', () => {
+  it('returns the correct badge variant for known statuses', () => {
+    expect(getStatusBadgeVariant('VALID')).toBe('success');
+    expect(getStatusBadgeVariant('REVOKED')).toBe('danger');
+    expect(getStatusBadgeVariant('SUSPENDED')).toBe('warning');
+    expect(getStatusBadgeVariant('EXPIRED')).toBe('default');
+    expect(getStatusBadgeVariant('NOT_FOUND')).toBe('default');
+  });
+});
+
+describe('getStatusTextClass', () => {
+  it('returns a color class for a known status', () => {
+    expect(getStatusTextClass('VALID')).toContain('trust');
+    expect(getStatusTextClass('REVOKED')).toContain('danger');
+    expect(getStatusTextClass('SUSPENDED')).toContain('warning');
+  });
+});
+
+describe('getStatusBgTextClass', () => {
+  it('returns a bg + text class for a known status', () => {
+    expect(getStatusBgTextClass('VALID')).toContain('trust');
+    expect(getStatusBgTextClass('REVOKED')).toContain('danger');
+    expect(getStatusBgTextClass('SUSPENDED')).toContain('warning');
   });
 });
 
@@ -52,6 +73,22 @@ describe('getStatusLabel', () => {
     expect(getStatusLabel('SUSPENDED')).toBe('Suspended');
     expect(getStatusLabel('EXPIRED')).toBe('Expired');
     expect(getStatusLabel('NOT_FOUND')).toBe('Not Found');
+  });
+});
+
+describe('getIssuerStatusBadgeVariant', () => {
+  it('returns the correct badge variant for issuer statuses', () => {
+    expect(getIssuerStatusBadgeVariant('ACTIVE')).toBe('success');
+    expect(getIssuerStatusBadgeVariant('REVOKED')).toBe('danger');
+    expect(getIssuerStatusBadgeVariant('SUSPENDED')).toBe('warning');
+  });
+});
+
+describe('getInstitutionStatusBadgeVariant', () => {
+  it('returns the correct badge variant for institution statuses', () => {
+    expect(getInstitutionStatusBadgeVariant('ACTIVE')).toBe('success');
+    expect(getInstitutionStatusBadgeVariant('SUSPENDED')).toBe('danger');
+    expect(getInstitutionStatusBadgeVariant('PENDING')).toBe('warning');
   });
 });
 

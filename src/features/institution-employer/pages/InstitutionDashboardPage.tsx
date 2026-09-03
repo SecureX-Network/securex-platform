@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   TrendingUp,
 } from 'lucide-react';
-import { Card, Skeleton } from '@/components/ui';
+import { Badge, Card, ErrorState, Skeleton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import type { InstitutionStats } from '@/services/api/institutionService';
 import {
@@ -18,7 +18,8 @@ import {
 } from '@/services/api/institutionService';
 import { getCredentials } from '@/services/api/credentialService';
 import { formatDate } from '@/utils/format';
-import type { Institution } from '@/types';
+import { getStatusBadgeVariant, getStatusLabel } from '@/utils/status';
+import type { Institution, CredentialStatus } from '@/types';
 
 export default function InstitutionDashboardPage() {
   const { user } = useAuth();
@@ -27,12 +28,14 @@ export default function InstitutionDashboardPage() {
   const [institution, setInstitution] = useState<Institution | null>(null);
   const [stats, setStats] = useState<InstitutionStats | null>(null);
   const [recentCredentials, setRecentCredentials] = useState<
-    { title: string; holderName: string; status: string; issuedAt: string }[]
+    { title: string; holderName: string; status: CredentialStatus; issuedAt: string }[]
   >([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const [inst, st, creds] = await Promise.all([
         getInstitutionById(institutionId),
@@ -56,7 +59,7 @@ export default function InstitutionDashboardPage() {
         }));
       setRecentCredentials(instCreds);
     } catch {
-      /* ignore */
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -96,20 +99,32 @@ export default function InstitutionDashboardPage() {
     ];
   }, [stats]);
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'VALID':
-        return 'text-trust-600 bg-trust-50';
-      case 'REVOKED':
-        return 'text-danger-600 bg-danger-50';
-      case 'SUSPENDED':
-        return 'text-warning-600 bg-warning-50';
-      case 'EXPIRED':
-        return 'text-neutral-600 bg-neutral-100';
-      default:
-        return 'text-neutral-600 bg-neutral-100';
-    }
-  };
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <section>
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-securex-600 text-white">
+              <Building2 className="h-5 w-5" />
+            </span>
+            <div>
+              <h1 className="text-xl font-bold text-neutral-900">
+                Welcome, {institution?.name ?? 'Institution'}
+              </h1>
+              <p className="text-sm text-neutral-500">
+                Overview of your institution&apos;s credentials and activity.
+              </p>
+            </div>
+          </div>
+        </section>
+        <ErrorState
+          title="Failed to load dashboard"
+          description="There was a problem loading your dashboard data. Please try again."
+          onRetry={loadData}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -127,7 +142,7 @@ export default function InstitutionDashboardPage() {
               )}
             </h1>
             <p className="text-sm text-neutral-500">
-              Overview of your institution's credentials and activity.
+              Overview of your institution&apos;s credentials and activity.
             </p>
           </div>
         </div>
@@ -182,7 +197,7 @@ export default function InstitutionDashboardPage() {
               {recentCredentials.map((cred, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between px-5 py-3"
+                  className="flex items-center justify-between rounded-lg px-5 py-3 transition-colors hover:bg-neutral-50"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-neutral-800">
@@ -193,11 +208,13 @@ export default function InstitutionDashboardPage() {
                     </p>
                   </div>
                   <div className="ml-4 flex items-center gap-3">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${statusColor(cred.status)}`}
+                    <Badge
+                      variant={getStatusBadgeVariant(cred.status)}
+                      size="sm"
+                      dot
                     >
-                      {cred.status}
-                    </span>
+                      {getStatusLabel(cred.status)}
+                    </Badge>
                     <span className="whitespace-nowrap text-xs text-neutral-400">
                       {formatDate(cred.issuedAt)}
                     </span>
@@ -209,44 +226,47 @@ export default function InstitutionDashboardPage() {
         </Card>
 
         <Card title="Quick Actions" padding="md">
-          <div className="space-y-3">
-            {[
-              {
-                label: 'Issue Credential',
-                icon: Award,
-                to: '/institution/issue',
-              },
-              {
-                label: 'View Credentials',
-                icon: FileCheck,
-                to: '/institution/credentials',
-              },
-              {
-                label: 'Manage Issuers',
-                icon: Building2,
-                to: '/institution/issuers',
-              },
-            ].map((action) => {
-              const Icon = action.icon;
-              return (
-                <Link
-                  key={action.label}
-                  to={action.to}
-                  className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3 transition-colors hover:border-securex-200 hover:bg-securex-50/40"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-securex-50 text-securex-600">
-                      <Icon className="h-4.5 w-4.5" />
-                    </span>
-                    <span className="text-sm font-medium text-neutral-700">
-                      {action.label}
-                    </span>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-neutral-400" />
-                </Link>
-              );
-            })}
-          </div>
+          <nav aria-label="Quick actions">
+            <ul className="space-y-3">
+              {[
+                {
+                  label: 'Issue Credential',
+                  icon: Award,
+                  to: '/institution/issue',
+                },
+                {
+                  label: 'View Credentials',
+                  icon: FileCheck,
+                  to: '/institution/credentials',
+                },
+                {
+                  label: 'Manage Issuers',
+                  icon: Building2,
+                  to: '/institution/issuers',
+                },
+              ].map((action) => {
+                const Icon = action.icon;
+                return (
+                  <li key={action.label}>
+                    <Link
+                      to={action.to}
+                      className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3 transition-colors hover:border-securex-200 hover:bg-securex-50/40"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-securex-50 text-securex-600">
+                          <Icon className="h-5 w-5" />
+                        </span>
+                        <span className="text-sm font-medium text-neutral-700">
+                          {action.label}
+                        </span>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-neutral-400" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
         </Card>
       </div>
 
@@ -261,11 +281,11 @@ export default function InstitutionDashboardPage() {
             </h3>
             <p className="text-xs text-neutral-500">
               Detailed charts and analytics for credential issuance trends, verification
-              patterns, and issuer performance will be available here.
+              patterns, and issuer performance.
             </p>
           </div>
         </div>
-        <div className="mt-4 flex h-40 items-center justify-center rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60">
+        <div className="mt-4 flex h-36 items-center justify-center rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60">
           <p className="text-sm text-neutral-400">
             Charts and analytics coming soon
           </p>
