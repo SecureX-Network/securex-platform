@@ -3,7 +3,9 @@ import { Building2, Eye, PauseCircle, PlayCircle, Search } from 'lucide-react';
 import {
   Badge,
   Button,
+  Dialog,
   Input,
+  ModeIndicator,
   Select,
   Table,
   EmptyState,
@@ -11,20 +13,19 @@ import {
 } from '@/components/ui';
 import type { Column } from '@/components/ui';
 import { getAllInstitutions } from '@/services/api/adminService';
+import { institutionStatusBadgeVariant } from '@/constants/badges';
 import type { Institution } from '@/types';
 import { formatDate } from '@/utils';
 
-const statusVariant: Record<Institution['status'], 'success' | 'danger' | 'warning'> = {
-  ACTIVE: 'success',
-  SUSPENDED: 'danger',
-  PENDING: 'warning',
-};
+type ActionKind = 'suspend' | 'approve' | 'activate';
 
 export default function AdminInstitutionsPage() {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [actionTarget, setActionTarget] = useState<Institution | null>(null);
+  const [actionKind, setActionKind] = useState<ActionKind | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -32,9 +33,7 @@ export default function AdminInstitutionsPage() {
       .then((data) => active && setInstitutions(data))
       .catch(() => active && setInstitutions([]))
       .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const counts = useMemo(
@@ -60,6 +59,45 @@ export default function AdminInstitutionsPage() {
     });
   }, [institutions, search, statusFilter]);
 
+  const openAction = (inst: Institution, kind: ActionKind) => {
+    setActionTarget(inst);
+    setActionKind(kind);
+  };
+
+  const confirmAction = () => {
+    if (!actionTarget || !actionKind) return;
+    setInstitutions((prev) =>
+      prev.map((i) => {
+        if (i.id !== actionTarget.id) return i;
+        if (actionKind === 'suspend') return { ...i, status: 'SUSPENDED' as const };
+        return { ...i, status: 'ACTIVE' as const };
+      }),
+    );
+    setActionTarget(null);
+    setActionKind(null);
+  };
+
+  const dialogConfig: Record<ActionKind, { title: string; message: React.ReactNode; confirmLabel: string; variant: 'danger' | 'info' }> = {
+    suspend: {
+      title: 'Suspend Institution?',
+      message: <>This will suspend <strong>{actionTarget?.name}</strong> and restrict their platform access. Existing credentials and issuers remain active.</>,
+      confirmLabel: 'Suspend Institution',
+      variant: 'danger',
+    },
+    approve: {
+      title: 'Approve Institution?',
+      message: <>This will approve <strong>{actionTarget?.name}</strong> and grant them active status on the platform.</>,
+      confirmLabel: 'Approve Institution',
+      variant: 'info',
+    },
+    activate: {
+      title: 'Activate Institution?',
+      message: <>This will reactivate <strong>{actionTarget?.name}</strong> and restore their platform access.</>,
+      confirmLabel: 'Activate Institution',
+      variant: 'info',
+    },
+  };
+
   const columns: Column<Institution>[] = useMemo(
     () => [
       {
@@ -82,7 +120,7 @@ export default function AdminInstitutionsPage() {
         key: 'status',
         header: 'Status',
         accessor: (row) => (
-          <Badge variant={statusVariant[row.status]}>{row.status}</Badge>
+          <Badge variant={institutionStatusBadgeVariant[row.status]}>{row.status}</Badge>
         ),
       },
       {
@@ -133,6 +171,7 @@ export default function AdminInstitutionsPage() {
                 size="sm"
                 leftIcon={<PauseCircle className="h-4 w-4" />}
                 className="text-warning-600"
+                onClick={(e) => { e.stopPropagation(); openAction(row, 'suspend'); }}
               >
                 Suspend
               </Button>
@@ -142,6 +181,7 @@ export default function AdminInstitutionsPage() {
                 size="sm"
                 leftIcon={<PlayCircle className="h-4 w-4" />}
                 className="text-trust-600"
+                onClick={(e) => { e.stopPropagation(); openAction(row, 'approve'); }}
               >
                 Approve
               </Button>
@@ -151,6 +191,7 @@ export default function AdminInstitutionsPage() {
                 size="sm"
                 leftIcon={<PlayCircle className="h-4 w-4" />}
                 className="text-trust-600"
+                onClick={(e) => { e.stopPropagation(); openAction(row, 'activate'); }}
               >
                 Activate
               </Button>
@@ -166,16 +207,23 @@ export default function AdminInstitutionsPage() {
     return <Skeleton className="h-72 w-full rounded-xl" />;
   }
 
+  const activeDialog = actionKind ? dialogConfig[actionKind] : null;
+
   return (
     <div className="space-y-5">
       <section>
-        <h1 className="text-2xl font-bold text-neutral-900">Institutions</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Onboard and manage institutions across the network.{' '}
-          <span className="font-medium text-neutral-700">{counts.ACTIVE} active</span>,{' '}
-          <span className="font-medium text-neutral-700">{counts.PENDING} pending</span>,{' '}
-          <span className="font-medium text-neutral-700">{counts.SUSPENDED} suspended</span>.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-neutral-900">Institutions</h1>
+            <p className="mt-1 text-sm text-neutral-500">
+              Onboard and manage institutions across the network.{' '}
+              <span className="font-medium text-neutral-700">{counts.ACTIVE} active</span>,{' '}
+              <span className="font-medium text-neutral-700">{counts.PENDING} pending</span>,{' '}
+              <span className="font-medium text-neutral-700">{counts.SUSPENDED} suspended</span>.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -217,6 +265,18 @@ export default function AdminInstitutionsPage() {
           />
         }
       />
+
+      {activeDialog && (
+        <Dialog
+          open
+          title={activeDialog.title}
+          message={activeDialog.message}
+          variant={activeDialog.variant}
+          confirmLabel={activeDialog.confirmLabel}
+          onConfirm={confirmAction}
+          onCancel={() => { setActionTarget(null); setActionKind(null); }}
+        />
+      )}
     </div>
   );
 }

@@ -2,16 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpDown, CreditCard, Search } from 'lucide-react';
 import {
+  Alert,
   CredentialCard,
   EmptyState,
   Input,
+  ModeIndicator,
   Select,
   Spinner,
   Tabs,
 } from '@/components/ui';
 import type { TabItem } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import { getHolderCredentials } from '@/services/api/credentialService';
+import { getHolderCredentialsView } from '@/features/holder-admin/services/holderAdminService';
 import type { Credential } from '@/types';
 
 type StatusFilter = 'ALL' | 'VALID' | 'EXPIRED' | 'REVOKED' | 'SUSPENDED';
@@ -34,17 +36,20 @@ export default function HolderCredentialsPage() {
 
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('recent');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
   const loadCredentials = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const data = await getHolderCredentials(holderId);
+      const data = await getHolderCredentialsView(holderId);
       setCredentials(data);
-    } catch {
+    } catch (e) {
       setCredentials([]);
+      setLoadError(e instanceof Error ? e.message : 'Could not load your credentials.');
     } finally {
       setLoading(false);
     }
@@ -110,10 +115,15 @@ export default function HolderCredentialsPage() {
   return (
     <div className="space-y-5">
       <section>
-        <h1 className="text-xl font-bold text-neutral-900">My Credentials</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">
-          Every credential in your wallet, ready to view, verify, and share.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-bold text-neutral-900">My Credentials</h1>
+            <p className="mt-0.5 text-sm text-neutral-500">
+              Every credential in your wallet, ready to view, verify, and share.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <div className="space-y-3">
@@ -146,6 +156,12 @@ export default function HolderCredentialsPage() {
         variant="pills"
         listClassName="overflow-x-auto pb-1"
       />
+
+      {loadError && (
+        <Alert variant="error" title="Could not load credentials">
+          {loadError}
+        </Alert>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16">

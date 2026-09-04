@@ -14,10 +14,12 @@ import {
 } from 'lucide-react';
 import {
   Card,
+  ModeIndicator,
   Skeleton,
 } from '@/components/ui';
 import { getAdminStats } from '@/services/api/adminService';
 import { MOCK_AUDIT_EVENTS, MOCK_SECURITY_ALERTS } from '@/services/mock';
+import { severityStyles } from '@/constants/badges';
 import type { AdminStats } from '@/services/api/adminService';
 import { formatDate } from '@/utils';
 
@@ -49,13 +51,6 @@ function StatCard({ label, value, icon, accent, linkTo }: StatCardProps) {
   }
   return content;
 }
-
-const severityBadge: Record<string, string> = {
-  CRITICAL: 'bg-danger-50 text-danger-700 ring-danger-600/20',
-  HIGH: 'bg-warning-50 text-warning-700 ring-warning-600/20',
-  MEDIUM: 'bg-warning-50 text-warning-700 ring-warning-600/20',
-  LOW: 'bg-securex-50 text-securex-700 ring-securex-600/20',
-};
 
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -94,7 +89,7 @@ export default function AdminDashboardPage() {
     },
     {
       label: 'Issuers',
-      value: stats?.totalCredentials ? '13' : '\u2014',
+      value: stats?.totalIssuers ?? '\u2014',
       icon: <UserCog className="h-6 w-6 text-purple-600" />,
       accent: 'bg-purple-50 text-purple-600',
       linkTo: '/admin/issuers',
@@ -128,16 +123,18 @@ export default function AdminDashboardPage() {
             Platform Overview
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Network health, user growth, and security posture at a glance. All
-            values below are <span className="font-medium">demo data</span>.
+            Network health, user growth, and security posture at a glance.
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-trust-400 opacity-75" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-trust-500" />
-          </span>
-          <span className="font-medium text-neutral-700">All systems operational</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-trust-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-trust-500" />
+            </span>
+            <span className="font-medium text-neutral-700">All systems operational</span>
+          </div>
+          <ModeIndicator />
         </div>
       </section>
 
@@ -187,7 +184,7 @@ export default function AdminDashboardPage() {
                     </p>
                   </div>
                   <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${severityBadge[alert.severity]}`}
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${severityStyles[alert.severity]}`}
                   >
                     {alert.severity}
                   </span>

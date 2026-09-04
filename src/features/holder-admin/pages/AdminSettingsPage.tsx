@@ -12,7 +12,9 @@ import {
   Button,
   Card,
   Checkbox,
+  Dialog,
   Input,
+  ModeIndicator,
   Select,
 } from '@/components/ui';
 
@@ -47,15 +49,21 @@ export default function AdminSettingsPage() {
   const [auditDigest, setAuditDigest] = useState(true);
   const [blockchainName, setBlockchainName] = useState('SecureX Ledger');
   const [blockInterval, setBlockInterval] = useState('6');
+  const [revokeKey, setRevokeKey] = useState<ApiKey | null>(null);
 
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-2xl font-bold text-neutral-900">Platform Settings</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Configure network parameters, access policies, and integration
-          endpoints.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-neutral-900">Platform Settings</h1>
+            <p className="mt-1 text-sm text-neutral-500">
+              Configure network parameters, access policies, and integration
+              endpoints.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <Card>
@@ -186,7 +194,12 @@ export default function AdminSettingsPage() {
                     {key.lastUsed}
                   </td>
                   <td className="px-4 py-3">
-                    <Button variant="ghost" size="sm" className="text-danger-600">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-danger-600"
+                      onClick={() => setRevokeKey(key)}
+                    >
                       Revoke
                     </Button>
                   </td>
@@ -253,6 +266,21 @@ export default function AdminSettingsPage() {
           </div>
         </div>
       </Card>
+
+      <Dialog
+        open={revokeKey !== null}
+        title="Revoke API key?"
+        message={
+          <>
+            This will permanently revoke the <strong>{revokeKey?.label}</strong>{' '}
+            key. Any integrations using it will immediately stop working.
+          </>
+        }
+        variant="danger"
+        confirmLabel="Revoke Key"
+        onConfirm={() => setRevokeKey(null)}
+        onCancel={() => setRevokeKey(null)}
+      />
     </div>
   );
 }

@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import {
   Activity,
   ArrowRight,
-  Bot,
   CheckCircle2,
   FileSearch,
   Radar,
@@ -13,15 +12,10 @@ import {
 } from 'lucide-react';
 import {
   Card,
+  ModeIndicator,
 } from '@/components/ui';
 import { MOCK_RISK_ASSESSMENTS, MOCK_SECURITY_ALERTS } from '@/services/mock';
-
-const severityStyles: Record<string, string> = {
-  CRITICAL: 'bg-danger-50 text-danger-700 ring-danger-600/20',
-  HIGH: 'bg-warning-50 text-warning-700 ring-warning-600/20',
-  MEDIUM: 'bg-warning-50 text-warning-700 ring-warning-600/20',
-  LOW: 'bg-securex-50 text-securex-700 ring-securex-600/20',
-};
+import { severityStyles } from '@/constants/badges';
 
 export default function AdminSecurityPage() {
   const score = useMemo(() => {
@@ -72,10 +66,15 @@ export default function AdminSecurityPage() {
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-2xl font-bold text-neutral-900">Security Center</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Fraud detection monitoring and threat intelligence. <span className="font-medium text-neutral-700">Demo data only.</span>
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-neutral-900">Security Center</h1>
+            <p className="mt-1 text-sm text-neutral-500">
+              Fraud detection monitoring and threat intelligence.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">
@@ -143,8 +142,9 @@ export default function AdminSecurityPage() {
             </div>
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600">
-            <Bot className="h-4 w-4 text-neutral-400" />
-            ML ensemble monitoring is actively scoring verifications.
+            <FileSearch className="h-4 w-4 text-neutral-400" />
+            Deterministic fraud/risk analysis identifies integrity indicators on
+            every verification.
           </div>
         </Card>
       </section>

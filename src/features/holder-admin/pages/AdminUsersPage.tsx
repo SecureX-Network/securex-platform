@@ -3,7 +3,9 @@ import { Eye, Search, ShieldBan, UserCircle2 } from 'lucide-react';
 import {
   Badge,
   Button,
+  Dialog,
   Input,
+  ModeIndicator,
   Select,
   Table,
   EmptyState,
@@ -12,26 +14,16 @@ import {
 import type { Column } from '@/components/ui';
 import { getAllUsers } from '@/services/api/adminService';
 import { MOCK_INSTITUTIONS } from '@/services/mock';
-import type { User, UserRole } from '@/types';
+import { roleBadgeVariant } from '@/constants/badges';
+import type { User } from '@/types';
 import { formatDate } from '@/utils';
-
-const roleVariant: Record<UserRole, 'default' | 'success' | 'info' | 'purple' | 'warning' | 'danger'> = {
-  PUBLIC: 'default',
-  HOLDER: 'success',
-  INSTITUTION: 'info',
-  ISSUER: 'purple',
-  EMPLOYER: 'warning',
-  ADMIN: 'danger',
-  SECURITY_ADMIN: 'danger',
-  NETWORK_ADMIN: 'danger',
-  AUDITOR: 'warning',
-};
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
+  const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -39,9 +31,7 @@ export default function AdminUsersPage() {
       .then((data) => active && setUsers(data))
       .catch(() => active && setUsers([]))
       .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const roleOptions = useMemo(() => {
@@ -97,7 +87,7 @@ export default function AdminUsersPage() {
         key: 'role',
         header: 'Role',
         accessor: (row) => (
-          <Badge variant={roleVariant[row.role]}>
+          <Badge variant={roleBadgeVariant[row.role]}>
             {row.role.replace(/_/g, ' ')}
           </Badge>
         ),
@@ -146,6 +136,7 @@ export default function AdminUsersPage() {
                 size="sm"
                 leftIcon={<ShieldBan className="h-4 w-4" />}
                 className="text-danger-600"
+                onClick={(e) => { e.stopPropagation(); setDeactivateTarget(row); }}
               >
                 Deactivate
               </Button>
@@ -164,13 +155,18 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-5">
       <section>
-        <h1 className="text-2xl font-bold text-neutral-900">Users</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Directory of all platform users.{' '}
-          <span className="font-medium text-neutral-700">{counts.HOLDER} holders</span>,{' '}
-          <span className="font-medium text-neutral-700">{counts.INSTITUTION} institutions</span>,{' '}
-          <span className="font-medium text-neutral-700">{counts.EMPLOYER} employers</span>.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-neutral-900">Users</h1>
+            <p className="mt-1 text-sm text-neutral-500">
+              Directory of all platform users.{' '}
+              <span className="font-medium text-neutral-700">{counts.HOLDER} holders</span>,{' '}
+              <span className="font-medium text-neutral-700">{counts.INSTITUTION} institutions</span>,{' '}
+              <span className="font-medium text-neutral-700">{counts.EMPLOYER} employers</span>.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -206,6 +202,22 @@ export default function AdminUsersPage() {
             description="Try adjusting your search or filters."
           />
         }
+      />
+
+      <Dialog
+        open={deactivateTarget !== null}
+        title="Deactivate User?"
+        message={
+          <>
+            This will deactivate <strong>{deactivateTarget?.name}</strong> and
+            prevent them from accessing the platform. They will need to be
+            reactivated to regain access.
+          </>
+        }
+        variant="danger"
+        confirmLabel="Deactivate User"
+        onConfirm={() => setDeactivateTarget(null)}
+        onCancel={() => setDeactivateTarget(null)}
       />
     </div>
   );

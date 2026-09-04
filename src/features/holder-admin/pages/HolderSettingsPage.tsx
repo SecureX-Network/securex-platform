@@ -10,7 +10,7 @@ import {
   Trash2,
   User as UserIcon,
 } from 'lucide-react';
-import { Button, Card, Checkbox, Input } from '@/components/ui';
+import { Button, Card, Checkbox, Dialog, Input, ModeIndicator } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 
 export default function HolderSettingsPage() {
@@ -22,14 +22,20 @@ export default function HolderSettingsPage() {
   const [notifySecurity, setNotifySecurity] = useState(true);
   const [notifyExpiry, setNotifyExpiry] = useState(true);
   const [shareProfilePublic, setShareProfilePublic] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-xl font-bold text-neutral-900">Settings</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">
-          Manage your profile, security, and privacy preferences.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-bold text-neutral-900">Settings</h1>
+            <p className="mt-0.5 text-sm text-neutral-500">
+              Manage your profile, security, and privacy preferences.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <Card>
@@ -205,10 +211,29 @@ export default function HolderSettingsPage() {
           Permanently deletes your account and all associated credentials. This
           action cannot be undone.
         </p>
-        <Button variant="danger" leftIcon={<Trash2 className="h-4 w-4" />}>
+        <Button
+          variant="danger"
+          leftIcon={<Trash2 className="h-4 w-4" />}
+          onClick={() => setConfirmDelete(true)}
+        >
           Delete account
         </Button>
       </Card>
+
+      <Dialog
+        open={confirmDelete}
+        title="Delete account?"
+        message={
+          <>
+            This will permanently delete <strong>{user?.name ?? 'your account'}</strong>{' '}
+            and all associated credentials. This action cannot be undone.
+          </>
+        }
+        variant="danger"
+        confirmLabel="Delete Account"
+        onConfirm={() => setConfirmDelete(false)}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

@@ -12,7 +12,7 @@ import {
   Share2,
   Sparkles,
 } from 'lucide-react';
-import { Card, CredentialCard, EmptyState, Skeleton } from '@/components/ui';
+import { Card, CredentialCard, EmptyState, ModeIndicator, Skeleton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { getHolderCredentials } from '@/services/api/credentialService';
 import { MOCK_NOTIFICATIONS, MOCK_VERIFICATION_HISTORY } from '@/services/mock';
@@ -129,18 +129,21 @@ export default function HolderDashboardPage() {
   return (
     <div className="space-y-6">
       <section>
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-securex-600 text-white">
-            <Sparkles className="h-5 w-5" />
-          </span>
-          <div>
-            <h1 className="text-xl font-bold text-neutral-900">
-              Welcome back, {firstName}
-            </h1>
-            <p className="text-sm text-neutral-500">
-              Your credential wallet at a glance.
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-securex-600 text-white">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            <div>
+              <h1 className="text-xl font-bold text-neutral-900">
+                Welcome back, {firstName}
+              </h1>
+              <p className="text-sm text-neutral-500">
+                Your credential wallet at a glance.
+              </p>
+            </div>
           </div>
+          <ModeIndicator />
         </div>
       </section>
 
