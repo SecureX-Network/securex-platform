@@ -65,10 +65,10 @@ export default function VerifyPage() {
   }
 
   return (
-    <div className="bg-neutral-50">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-blue-50/30">
       {/* Hero */}
-      <section className="bg-neutral-950">
-        <div className="mx-auto max-w-7xl px-4 py-16 pt-20 sm:px-6 lg:px-8">
+      <section className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-[#0b1f4d] to-[#1e1b4b]">
+        <div className="relative mx-auto max-w-7xl px-4 py-24 pt-28 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-neutral-300">
               <ShieldCheck className="h-3.5 w-3.5 text-trust-400" />
@@ -85,9 +85,12 @@ verification details through SecureX.
         </div>
       </section>
 
-      <section className="mx-auto -mt-10 max-w-3xl px-4 pb-16 sm:px-6 lg:px-8">
+      <section className="relative z-10 mx-auto -mt-20 max-w-5xl px-4 pb-20 sm:px-6 lg:px-8">
         {/* Search card */}
-        <Card padding="lg" className="shadow-securex">
+        <Card
+  padding="lg"
+  className="rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-blue-900/20 ring-1 ring-slate-900/5"
+>
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div>
               <label
@@ -120,7 +123,7 @@ verification details through SecureX.
                   type="submit"
                   size="lg"
                   disabled={!query.trim()}
-                  className="sm:w-auto"
+                className="min-w-[160px] rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 font-bold shadow-xl shadow-blue-600/30 transition-all duration-200 hover:-translate-y-1 hover:from-blue-700 hover:to-indigo-700 hover:shadow-2xl hover:shadow-blue-600/40 sm:w-auto"
                 >
                   Verify
                 </Button>
@@ -140,7 +143,7 @@ verification details through SecureX.
                     setQuery(sampleId);
                     setError(undefined);
                   }}
-                  className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 font-mono text-xs text-securex-700 transition-colors hover:border-securex-200 hover:bg-securex-50"
+                className="rounded-full border border-blue-100 bg-blue-50/60 px-3.5 py-1.5 font-mono text-xs font-medium text-blue-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-100 hover:shadow-md"
                 >
                   {sampleId}
                 </button>
@@ -149,33 +152,37 @@ verification details through SecureX.
           </form>
         </Card>
 
-        {/* QR placeholder */}
-        <Card padding="lg" className="mt-6">
+       {/* QR placeholder */}
+<Card
+  padding="lg"
+  className="mt-6 border border-slate-200/80 bg-white shadow-xl shadow-slate-900/5"
+>
           <h2 className="text-base font-semibold text-neutral-900">
             Scan a QR code
           </h2>
           <p className="mt-1 text-sm text-neutral-500">
             QR scanning is not available in the current version.
           </p>
-          <div className="mt-5 flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-neutral-300 bg-neutral-50 p-10 text-center">
-            <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-neutral-100 text-neutral-400">
-              <ScanLine className="h-9 w-9" />
-            </span>
-            <div>
-              <p className="text-sm font-medium text-neutral-700">
-                QR scanner coming soon
-              </p>
-              <p className="mt-1 text-xs text-neutral-500">
-                Use the credential ID to verify manually for now.
-              </p>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-neutral-400">
-              <Lock className="h-3.5 w-3.5" />
-              Reading a QR code never reveals sensitive holder data.
-            </div>
-          </div>
-        </Card>
+         <div className="mt-5 flex min-h-[280px] flex-col items-center justify-center gap-5 rounded-2xl border border-dashed border-blue-200 bg-gradient-to-br from-blue-50/60 via-white to-indigo-50/60 p-10 text-center transition-all duration-300 hover:border-blue-300 hover:shadow-inner">
+  <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100 text-blue-600 shadow-inner">
+    <ScanLine className="h-9 w-9" />
+  </span>
 
+  <div>
+    <p className="text-sm font-medium text-neutral-700">
+      QR scanner coming soon
+    </p>
+    <p className="mt-1 text-xs text-neutral-500">
+      Use the credential ID to verify manually for now.
+    </p>
+  </div>
+
+  <div className="flex items-center gap-1.5 text-xs text-neutral-400">
+    <Lock className="h-3.5 w-3.5" />
+    Reading a QR code never reveals sensitive holder data.
+  </div>
+</div>
+</Card>
         {/* Recent verifications */}
         {historyEnabled ? (
           <Card

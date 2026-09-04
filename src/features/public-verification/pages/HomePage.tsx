@@ -72,192 +72,422 @@ const STEPS = [
 
 export default function HomePage() {
   return (
-    <div>
-      {/* Hero */}
-      <section className="relative overflow-hidden bg-neutral-950">
-  <div className="pointer-events-none absolute -left-40 top-20 h-80 w-80 rounded-full bg-trust-500/10 blur-3xl" />
-  <div className="pointer-events-none absolute -right-40 top-0 h-96 w-96 rounded-full bg-securex-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.18),transparent_55%)]" />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(80,70,229,0.15),transparent_55%)]" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto max-w-3xl text-center">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-neutral-300">
-              <ShieldCheck className="h-3.5 w-3.5 text-trust-400" />
+    <div className="overflow-hidden bg-white">
+
+      {/* =====================================================
+          HERO
+      ===================================================== */}
+      <section className="securex-hero relative overflow-hidden">
+
+        {/* Background Effects */}
+        <div className="pointer-events-none absolute -left-40 top-10 h-96 w-96 rounded-full bg-trust-500/20 blur-3xl" />
+
+        <div className="pointer-events-none absolute -right-40 top-0 h-[28rem] w-[28rem] rounded-full bg-securex-500/20 blur-3xl" />
+
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.12),transparent_55%)]" />
+
+        <div className="relative mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8 lg:py-32">
+
+          {/* HERO CONTENT */}
+          <div className="mx-auto max-w-4xl text-center">
+
+            {/* Badge */}
+            <div className="securex-hero-badge inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold shadow-lg backdrop-blur">
+
+              <ShieldCheck className="h-4 w-4 text-trust-500" />
+
               Blockchain-Powered Trust Network
-            </span>
-            <h1 className="mt-7 text-4xl font-extrabold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl xl:text-7xl">
-              Blockchain-Powered Digital{' '}
-              <span className="bg-gradient-to-r from-trust-400 to-securex-400 bg-clip-text text-transparent">
-                Credential Trust Network
+
+              <span className="h-1 w-1 rounded-full bg-trust-500" />
+
+              SecureX
+
+            </div>
+
+            {/* Heading */}
+            <h1 className="securex-hero-title mt-8 text-4xl font-black leading-[1.05] tracking-tight sm:text-5xl lg:text-7xl">
+
+              Blockchain-Powered
+
+              <span className="block bg-gradient-to-r from-trust-500 via-emerald-500 to-securex-500 bg-clip-text text-transparent">
+                Digital Credential Trust Network
               </span>
+
             </h1>
-            <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-neutral-300 sm:text-lg sm:leading-8">
+
+            {/* Description */}
+            <p className="securex-hero-description mx-auto mt-7 max-w-3xl text-base leading-7 sm:text-lg sm:leading-8">
+
               Issue, store, and verify credentials with cryptographic security.
               SecureX connects institutions, holders, and employers through a
-              tamper-proof distributed ledger — building trust in every
-              credential.
+              tamper-proof distributed ledger.
+
             </p>
-            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Button href="/verify" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
+
+            {/* Buttons */}
+            <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+
+              {/* Verify */}
+              <Button
+                href="/verify"
+                size="lg"
+                rightIcon={<ArrowRight className="h-5 w-5" />}
+                className="shadow-xl shadow-securex-500/20 transition-all hover:-translate-y-1"
+              >
                 Verify Credential
               </Button>
+
+              {/* Get Started */}
               <Button
                 href="/auth/register"
                 size="lg"
                 variant="outline"
-                className="border-white/25 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                className="securex-outline-button"
               >
                 Get Started
               </Button>
+
             </div>
+
           </div>
 
-          {/* Visual shield */}
-          <div className="mx-auto mt-16 max-w-2xl">
-            <div className="relative flex items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] p-10 shadow-2xl shadow-black/20 backdrop-blur-md transition-transform duration-500 hover:scale-[1.01]">
-              <div className="relative flex h-40 w-40 items-center justify-center sm:h-48 sm:w-48">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-trust-500/30 to-securex-500/30 blur-2xl" />
-                <div className="absolute inset-4 rounded-full border border-dashed border-white/20" />
-                <div className="relative flex h-32 w-32 items-center justify-center rounded-3xl bg-gradient-to-br from-trust-500 to-securex-600 shadow-2xl shadow-trust-500/20 transition-transform duration-500 hover:rotate-2 hover:scale-105 sm:h-40 sm:w-40">
-                  <Shield className="h-16 w-16 text-white sm:h-20 sm:w-20" />
+
+          {/* =====================================================
+              SHIELD VISUAL
+          ===================================================== */}
+          <div className="mx-auto mt-20 max-w-3xl">
+
+            <div className="securex-hero-card relative rounded-[2rem] p-10 shadow-2xl backdrop-blur-xl sm:p-14">
+
+              {/* Card Glow */}
+              <div className="absolute inset-0 rounded-[2rem] bg-gradient-to-br from-trust-500/5 via-transparent to-securex-500/10" />
+
+              <div className="relative flex items-center justify-center">
+
+                <div className="relative flex h-56 w-56 items-center justify-center sm:h-64 sm:w-64">
+
+                  {/* Outer Glow */}
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-r from-trust-500/30 to-securex-500/30 blur-3xl" />
+
+                  {/* Dashed Circle */}
+                  <div className="absolute inset-4 rounded-full border border-dashed border-neutral-300 dark:border-white/20" />
+
+                  {/* Inner Circle */}
+                  <div className="absolute inset-8 rounded-full border border-neutral-200 dark:border-white/10" />
+
+                  {/* Shield */}
+                  <div className="relative flex h-36 w-36 items-center justify-center rounded-[2rem] bg-gradient-to-br from-trust-400 to-securex-600 shadow-2xl shadow-trust-500/30 transition-all duration-500 hover:scale-110 hover:rotate-2 sm:h-44 sm:w-44">
+
+                    <Shield className="h-20 w-20 text-white sm:h-24 sm:w-24" />
+
+                  </div>
+
+
+                  {/* Verified Icon */}
+                  <div className="absolute right-0 top-6 flex h-11 w-11 items-center justify-center rounded-full border border-neutral-200 bg-white text-trust-600 shadow-xl">
+
+                    <CheckCircle2 className="h-6 w-6" />
+
+                  </div>
+
+
+                  {/* Lock Icon */}
+                  <div className="securex-lock-badge absolute bottom-7 left-0 flex h-11 w-11 items-center justify-center rounded-full shadow-xl">
+
+                    <Lock className="h-5 w-5" />
+
+                  </div>
+
                 </div>
-                <span className="absolute -right-1 top-6 flex h-9 w-9 items-center justify-center rounded-full bg-white text-trust-600 shadow-lg">
-                  <CheckCircle2 className="h-5 w-5" />
-                </span>
-                <span className="absolute -left-2 bottom-8 flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg">
-                  <Lock className="h-4 w-4" />
-                </span>
+
               </div>
+
+
+              {/* Security Tags */}
+              <div className="relative mt-8 flex flex-wrap justify-center gap-3">
+
+                <span className="securex-hero-tag rounded-full px-4 py-2 text-xs font-medium">
+                  Cryptographically Secure
+                </span>
+
+                <span className="securex-hero-tag rounded-full px-4 py-2 text-xs font-medium">
+                  Tamper Resistant
+                </span>
+
+              </div>
+
             </div>
+
           </div>
+
         </div>
+
       </section>
 
-      {/* Stats */}
+
+      {/* =====================================================
+          STATS
+      ===================================================== */}
       <section className="border-b border-neutral-200 bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-          <h2 className="text-center text-sm font-semibold uppercase tracking-widest text-neutral-400">
-            Trusted by leading institutions
-          </h2>
-          <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
+
+        <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+
+          <div className="mx-auto max-w-2xl text-center">
+
+            <p className="text-sm font-bold uppercase tracking-widest text-securex-600">
+              Trusted Network
+            </p>
+
+            <h2 className="mt-3 text-2xl font-black text-neutral-900 sm:text-3xl">
+              Built for digital trust at scale
+            </h2>
+
+          </div>
+
+
+          <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-3">
+
             {STATS.map((stat) => (
+
               <div
                 key={stat.label}
-                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-6 text-center"
+                className="group rounded-3xl border border-neutral-200 bg-gradient-to-br from-neutral-50 to-white p-8 text-center shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-securex-200 hover:shadow-xl"
               >
-                <div className="text-4xl font-extrabold text-securex-600">
+
+                <div className="text-4xl font-black text-securex-600">
                   {stat.value}
                 </div>
-                <div className="mt-2 text-sm font-medium text-neutral-600">
+
+                <div className="mt-2 text-sm font-semibold text-neutral-700">
                   {stat.label}
                 </div>
-                <div className="mt-2 text-[11px] uppercase tracking-wide text-neutral-400">
+
+                <div className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">
                   Demo value
                 </div>
+
               </div>
+
             ))}
+
           </div>
+
         </div>
+
       </section>
 
-      {/* Features */}
-      <section className="bg-neutral-50 py-20 lg:py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+
+      {/* =====================================================
+          FEATURES
+      ===================================================== */}
+      <section className="relative bg-neutral-50 py-24 lg:py-28">
+
+        <div className="absolute left-1/2 top-0 h-72 w-72 -translate-x-1/2 rounded-full bg-securex-100/40 blur-3xl" />
+
+        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold text-neutral-900 sm:text-4xl">
+
+            <p className="text-sm font-bold uppercase tracking-widest text-securex-600">
+              Why SecureX
+            </p>
+
+            <h2 className="mt-3 text-3xl font-black text-neutral-900 sm:text-4xl">
               A new standard for digital trust
             </h2>
-            <p className="mt-4 text-lg text-neutral-600">
+
+            <p className="mt-5 text-lg leading-8 text-neutral-600">
               SecureX makes credentials portable, secure, and instantly
               verifiable across the entire ecosystem.
             </p>
+
           </div>
+
+
           <div className="mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {FEATURES.map((feature) => (
-              <div
-                key={feature.title}
-               className="group rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
-              >
-                <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-securex-50 text-securex-600">
-                  <feature.icon className="h-6 w-6" />
-                </span>
-                <h3 className="mt-4 text-lg font-semibold text-neutral-900">
-                  {feature.title}
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-neutral-600">
-                  {feature.description}
-                </p>
-              </div>
-            ))}
+
+            {FEATURES.map((feature) => {
+
+              const Icon = feature.icon;
+
+              return (
+                <div
+                  key={feature.title}
+                  className="group rounded-3xl border border-neutral-200 bg-white p-7 shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-securex-200 hover:shadow-2xl"
+                >
+
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-securex-50 to-trust-50 text-securex-600 transition-transform duration-300 group-hover:scale-110">
+
+                    <Icon className="h-7 w-7" />
+
+                  </div>
+
+
+                  <h3 className="mt-6 text-lg font-bold text-neutral-900">
+                    {feature.title}
+                  </h3>
+
+
+                  <p className="mt-3 text-sm leading-6 text-neutral-600">
+                    {feature.description}
+                  </p>
+
+
+                  <ArrowRight className="mt-6 h-5 w-5 text-securex-500 transition-transform duration-300 group-hover:translate-x-1" />
+
+                </div>
+              );
+
+            })}
+
           </div>
+
         </div>
+
       </section>
 
-      {/* How it works preview */}
-      <section className="bg-white py-20 lg:py-24">
+
+      {/* =====================================================
+          HOW IT WORKS
+      ===================================================== */}
+      <section className="bg-white py-24 lg:py-28">
+
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold text-neutral-900 sm:text-4xl">
+
+            <p className="text-sm font-bold uppercase tracking-widest text-securex-600">
+              Simple Process
+            </p>
+
+            <h2 className="mt-3 text-3xl font-black text-neutral-900 sm:text-4xl">
               How it works
             </h2>
-            <p className="mt-4 text-lg text-neutral-600">
+
+            <p className="mt-5 text-lg text-neutral-600">
               A simple three-step flow that turns credentials into
               verifiable, portable proof.
             </p>
+
           </div>
+
+
           <div className="mt-14 grid grid-cols-1 gap-6 md:grid-cols-3">
-            {STEPS.map((step) => (
-              <div key={step.step} className="relative rounded-2xl border border-neutral-200 bg-neutral-50 p-6">
-                <div className="flex items-center justify-between">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-securex-600 text-white">
-                    <step.icon className="h-6 w-6" />
-                  </span>
-                  <span className="text-4xl font-extrabold text-neutral-200">
-                    {step.step}
-                  </span>
+
+            {STEPS.map((step) => {
+
+              const Icon = step.icon;
+
+              return (
+                <div
+                  key={step.step}
+                  className="group relative rounded-3xl border border-neutral-200 bg-gradient-to-br from-neutral-50 to-white p-7 shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-securex-200 hover:shadow-xl"
+                >
+
+                  <div className="flex items-center justify-between">
+
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-securex-600 text-white shadow-lg shadow-securex-600/20">
+
+                      <Icon className="h-7 w-7" />
+
+                    </div>
+
+
+                    <span className="text-5xl font-black text-neutral-100 transition-colors group-hover:text-securex-100">
+                      {step.step}
+                    </span>
+
+                  </div>
+
+
+                  <h3 className="mt-7 text-xl font-bold text-neutral-900">
+                    {step.title}
+                  </h3>
+
+
+                  <p className="mt-3 text-sm leading-6 text-neutral-600">
+                    {step.description}
+                  </p>
+
                 </div>
-                <h3 className="mt-5 text-lg font-semibold text-neutral-900">
-                  {step.title}
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-neutral-600">
-                  {step.description}
-                </p>
-              </div>
-            ))}
+              );
+
+            })}
+
           </div>
+
+
           <div className="mt-10 text-center">
-            <Button href="/how-it-works" variant="outline" rightIcon={<ArrowRight className="h-4 w-4" />}>
+
+            <Button
+              href="/how-it-works"
+              variant="outline"
+              rightIcon={<ArrowRight className="h-4 w-4" />}
+            >
               Learn more
             </Button>
+
           </div>
+
         </div>
+
       </section>
 
-      {/* CTA */}
-      <section className="bg-neutral-950 py-20">
-        <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">
+
+      {/* =====================================================
+          FINAL CTA
+      ===================================================== */}
+      <section className="relative overflow-hidden bg-neutral-950 py-24">
+
+        <div className="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-securex-600/20 blur-3xl" />
+
+        <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
+
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+
+            <ShieldCheck className="h-8 w-8 text-trust-400" />
+
+          </div>
+
+
+          <h2 className="mt-7 text-3xl font-black text-white sm:text-5xl">
             Ready to build a world without credential fraud?
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-neutral-300">
+
+
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-neutral-300">
             Join the network of institutions, holders, and employers
             modernizing how trust is established.
           </p>
-          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button href="/auth/register" size="lg">
+
+
+          <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+
+            <Button
+              href="/auth/register"
+              size="lg"
+              className="shadow-xl shadow-securex-500/20 transition-all hover:-translate-y-1"
+            >
               Get Started Free
+              <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
+
+
             <Button
               href="/contact"
               size="lg"
               variant="outline"
-              className="border-white/25 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+              className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
             >
               Contact Sales
             </Button>
+
           </div>
+
         </div>
+
       </section>
+
     </div>
   );
 }

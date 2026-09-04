@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =========================================================
+   BASE
+   ========================================================= */
+
 @layer base {
   :root {
     --color-primary: #1558f5;
@@ -14,10 +18,354 @@
     border-color: theme('colors.neutral.200');
   }
 
+  html {
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
+  }
+
   body {
     @apply bg-neutral-50 text-neutral-900 font-sans;
+
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
   }
 }
+
+/* =========================================================
+   SECUREX HERO
+   ========================================================= */
+
+.securex-hero {
+  transition:
+    background 0.4s ease,
+    color 0.4s ease;
+}
+
+/* =========================================================
+   LIGHT MODE — DEFAULT
+   ========================================================= */
+
+html:not(.dark-theme) body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* =========================================================
+   LIGHT HERO
+   ========================================================= */
+
+html:not(.dark-theme) .securex-hero {
+  background:
+    radial-gradient(
+      ellipse at top right,
+      rgba(37, 99, 235, 0.08),
+      transparent 55%
+    ),
+    linear-gradient(
+      135deg,
+      #ffffff 0%,
+      #f8fafc 55%,
+      #eef6ff 100%
+    ) !important;
+}
+
+/* Hero badge */
+
+html:not(.dark-theme) .securex-hero-badge {
+  border: 1px solid #d1d5db;
+  background: rgba(255, 255, 255, 0.8);
+  color: #475569;
+}
+
+/* Hero heading */
+
+html:not(.dark-theme) .securex-hero-title {
+  color: #0f172a;
+}
+
+/* Hero description */
+
+html:not(.dark-theme) .securex-hero-description {
+  color: #475569;
+}
+
+/* Hero glass card */
+
+html:not(.dark-theme) .securex-hero-card {
+  border: 1px solid #dbe3ec;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    0 25px 60px rgba(15, 23, 42, 0.08);
+}
+
+/* Hero lock */
+
+html:not(.dark-theme) .securex-lock-badge {
+  border: 1px solid #dbe3ec;
+  background: #ffffff;
+  color: #334155;
+}
+
+/* Hero tags */
+
+html:not(.dark-theme) .securex-hero-tag {
+  border: 1px solid #d1d5db;
+  background: rgba(255, 255, 255, 0.8);
+  color: #475569;
+}
+
+/* =========================================================
+   HERO BUTTON — LIGHT MODE
+   ========================================================= */
+
+html:not(.dark-theme) .securex-hero .securex-outline-button {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+html:not(.dark-theme) .securex-hero .securex-outline-button:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* =========================================================
+   LIGHT MODE — GENERAL
+   ========================================================= */
+
+html:not(.dark-theme) .bg-white {
+  background-color: #ffffff;
+}
+
+html:not(.dark-theme) .bg-neutral-50 {
+  background-color: #f8fafc;
+}
+
+/* =========================================================
+   DARK MODE
+   ========================================================= */
+
+html.dark-theme {
+  color-scheme: dark;
+}
+
+/* =========================================================
+   DARK BODY
+   ========================================================= */
+
+html.dark-theme body {
+  background-color: #090d18;
+  color: #f8fafc;
+}
+
+/* =========================================================
+   DARK HERO
+   ========================================================= */
+
+html.dark-theme .securex-hero {
+  background:
+    radial-gradient(
+      ellipse at top right,
+      rgba(16, 185, 129, 0.16),
+      transparent 55%
+    ),
+    linear-gradient(
+      110deg,
+      #062c27 0%,
+      #020617 45%,
+      #082d48 100%
+    ) !important;
+}
+
+/* Hero badge */
+
+html.dark-theme .securex-hero-badge {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+}
+
+/* Hero heading */
+
+html.dark-theme .securex-hero-title {
+  color: #ffffff;
+}
+
+/* Hero description */
+
+html.dark-theme .securex-hero-description {
+  color: #d1d5db;
+}
+
+/* Hero glass card */
+
+html.dark-theme .securex-hero-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 25px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* Hero lock */
+
+html.dark-theme .securex-lock-badge {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #171717;
+  color: #ffffff;
+}
+
+/* Hero tags */
+
+html.dark-theme .securex-hero-tag {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+}
+
+/* =========================================================
+   HERO BUTTON — DARK MODE
+   ========================================================= */
+
+html.dark-theme .securex-hero .securex-outline-button {
+  background-color: rgba(15, 23, 42, 0.8) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+html.dark-theme .securex-hero .securex-outline-button:hover {
+  background-color: rgba(30, 41, 59, 0.9) !important;
+  color: #ffffff !important;
+}
+
+/* =========================================================
+   DARK MODE — NAVBAR
+   ========================================================= */
+
+html.dark-theme header {
+  background-color: rgba(9, 13, 24, 0.94) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Navbar logo */
+
+html.dark-theme header .text-neutral-950 {
+  color: #ffffff !important;
+}
+
+/* Navbar text */
+
+html.dark-theme header .text-neutral-700,
+html.dark-theme header .text-neutral-600 {
+  color: #cbd5e1 !important;
+}
+
+/* Navbar hover */
+
+html.dark-theme header .hover\:text-neutral-950:hover {
+  color: #ffffff !important;
+}
+
+/* Navbar navigation background */
+
+html.dark-theme header .bg-neutral-50\/70 {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Active navigation */
+
+html.dark-theme header .bg-white {
+  background-color: #172033 !important;
+}
+
+/* Navbar borders */
+
+html.dark-theme header .border-neutral-200,
+html.dark-theme header .border-neutral-200\/80,
+html.dark-theme header .border-neutral-200\/70 {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Theme button */
+
+html.dark-theme header button {
+  color: #e2e8f0;
+}
+
+/* =========================================================
+   DARK MODE — GENERAL SECTIONS
+   ========================================================= */
+
+html.dark-theme .bg-white {
+  background-color: #0f172a !important;
+}
+
+html.dark-theme .bg-neutral-50 {
+  background-color: #111827 !important;
+}
+
+html.dark-theme .bg-neutral-100 {
+  background-color: #1e293b !important;
+}
+
+/* =========================================================
+   DARK MODE — TEXT
+   ========================================================= */
+
+html.dark-theme .text-neutral-950,
+html.dark-theme .text-neutral-900 {
+  color: #f8fafc !important;
+}
+
+html.dark-theme .text-neutral-700 {
+  color: #cbd5e1 !important;
+}
+
+html.dark-theme .text-neutral-600 {
+  color: #94a3b8 !important;
+}
+
+html.dark-theme .text-neutral-500 {
+  color: #94a3b8 !important;
+}
+
+html.dark-theme .text-neutral-400 {
+  color: #64748b !important;
+}
+
+/* =========================================================
+   DARK MODE — BORDERS
+   ========================================================= */
+
+html.dark-theme .border-neutral-200,
+html.dark-theme .border-neutral-100 {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* =========================================================
+   DARK MODE — CARDS
+   ========================================================= */
+
+html.dark-theme .bg-gradient-to-br.from-neutral-50 {
+  background: linear-gradient(
+    135deg,
+    #111827,
+    #0f172a
+  ) !important;
+}
+
+/* =========================================================
+   DARK MODE — FINAL CTA
+   ========================================================= */
+
+html.dark-theme .bg-neutral-950 {
+  background-color: #020617 !important;
+}
+
+/* =========================================================
+   COMPONENTS
+   ========================================================= */
 
 @layer components {
   .page-container {
@@ -59,21 +407,28 @@
   .securex-shimmer {
     --securex-shimmer-base: theme('colors.neutral.200');
     --securex-shimmer-highlight: theme('colors.neutral.300');
+
     background: linear-gradient(
       90deg,
       var(--securex-shimmer-base) 25%,
       var(--securex-shimmer-highlight) 50%,
       var(--securex-shimmer-base) 75%
     );
+
     background-size: 200% 100%;
     animation: securex-shimmer 1.4s ease-in-out infinite;
   }
 }
 
+/* =========================================================
+   ANIMATIONS
+   ========================================================= */
+
 @keyframes securex-shimmer {
   from {
     background-position: 200% 0;
   }
+
   to {
     background-position: -200% 0;
   }
@@ -83,6 +438,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -93,6 +449,7 @@
     opacity: 0;
     transform: scale(0.96);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -104,8 +461,117 @@
     opacity: 0;
     transform: translateY(0.5rem);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
   }
+}
+/* =========================================================
+   PREMIUM SIGN IN BUTTON
+   ========================================================= */
+
+.securex-signin-button {
+  position: relative;
+  overflow: hidden;
+
+  border: 1px solid #f4c430;
+
+  background: linear-gradient(
+    135deg,
+    #fffdf5 0%,
+    #fff8d6 50%,
+    #fffdf5 100%
+  );
+
+  color: #713f12;
+
+  box-shadow:
+    0 0 0 1px rgba(244, 196, 48, 0.15),
+    0 0 18px rgba(244, 196, 48, 0.35),
+    0 0 40px rgba(244, 196, 48, 0.12);
+
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+
+
+/* Shimmer effect */
+
+.securex-signin-button::before {
+  content: '';
+
+  position: absolute;
+  top: -50%;
+  left: -100%;
+
+  width: 60%;
+  height: 200%;
+
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.95),
+    transparent
+  );
+
+  transform: rotate(20deg);
+
+  transition: left 0.6s ease;
+}
+
+
+.securex-signin-button:hover::before {
+  left: 140%;
+}
+
+
+/* Hover */
+
+.securex-signin-button:hover {
+  transform: translateY(-2px) scale(1.02);
+
+  border-color: #facc15;
+
+  box-shadow:
+    0 0 0 1px rgba(250, 204, 21, 0.25),
+    0 0 25px rgba(250, 204, 21, 0.55),
+    0 0 55px rgba(244, 196, 48, 0.25);
+}
+
+
+/* =========================================================
+   DARK MODE — PREMIUM SIGN IN
+   ========================================================= */
+
+html.dark-theme .securex-signin-button {
+  border-color: #facc15;
+
+  background: linear-gradient(
+    135deg,
+    #1c1917 0%,
+    #292524 50%,
+    #1c1917 100%
+  );
+
+  color: #fef3c7;
+
+  box-shadow:
+    0 0 0 1px rgba(250, 204, 21, 0.18),
+    0 0 20px rgba(250, 204, 21, 0.35),
+    0 0 45px rgba(250, 204, 21, 0.12);
+}
+
+
+html.dark-theme .securex-signin-button:hover {
+  border-color: #fde047;
+
+  color: #ffffff;
+
+  box-shadow:
+    0 0 0 1px rgba(253, 224, 71, 0.3),
+    0 0 28px rgba(250, 204, 21, 0.65),
+    0 0 60px rgba(250, 204, 21, 0.25);
 }
