@@ -149,7 +149,7 @@ export interface ApiQrReference {
   credentialId: string;
   version: string;
   verificationUrl: string;
-  payload: { credentialId: string; version: string };
+  payload: { credentialId: string; version: string; protocol?: string };
   exists: boolean;
   qrContent: string;
 }

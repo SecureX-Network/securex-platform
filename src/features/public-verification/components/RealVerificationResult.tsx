@@ -236,35 +236,56 @@ export function RealVerificationResult({ result }: { result: VerificationView })
       )}
 
       <Card title="Blockchain proof" bodyClassName="pt-4">
-        <div className="mb-4 flex items-center gap-2">
-          <Badge
-            variant={result.status === 'VALID' ? 'success' : result.status === 'REVOKED' || result.status === 'INVALID' || result.status === 'NOT_FOUND' ? 'danger' : 'warning'}
-            icon={
-              result.status === 'VALID' ? (
-                <BadgeCheck aria-hidden="true" className="h-3.5 w-3.5" />
-              ) : (
-                <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />
-              )
-            }
-          >
-            {result.status === 'VALID' ? 'Anchored to SecureX ledger' : 'Recorded on SecureX ledger'}
-          </Badge>
-        </div>
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-          <Detail label="Transaction" value={result.transaction?.id} mono />
-          <Detail label="Transaction type" value={result.transaction?.type} />
-          <Detail label="Block height" value={result.transaction?.blockHeight ?? result.block?.height} mono />
-          <Detail label="Block hash" value={truncateHash(result.block?.hash ?? result.transaction?.blockHash, 14, 10)} mono />
-          <Detail label="Proposer" value={result.block?.proposer} mono />
-          <Detail
-            label="Block timestamp"
-            value={result.block?.timestamp ? formatDate(result.block.timestamp) : '—'}
-          />
-        </dl>
-        <div className="mt-4 flex items-center gap-1.5 border-t border-neutral-100 pt-3 text-xs text-neutral-400">
-          <Layers aria-hidden="true" className="h-3.5 w-3.5" />
-          Hash: <span className="font-mono">{truncateHash(result.credentialHash, 14, 10)}</span>
-        </div>
+        {result.transaction || result.block ? (
+          <>
+            <div className="mb-4 flex items-center gap-2">
+              <Badge
+                variant={result.status === 'VALID' ? 'success' : result.status === 'REVOKED' || result.status === 'INVALID' || result.status === 'NOT_FOUND' ? 'danger' : 'warning'}
+                icon={
+                  result.status === 'VALID' ? (
+                    <BadgeCheck aria-hidden="true" className="h-3.5 w-3.5" />
+                  ) : (
+                    <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />
+                  )
+                }
+              >
+                {result.status === 'VALID' ? 'Anchored to SecureX ledger' : 'Recorded on SecureX ledger'}
+              </Badge>
+            </div>
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+              <Detail label="Transaction" value={result.transaction?.id} mono />
+              <Detail label="Transaction type" value={result.transaction?.type} />
+              <Detail label="Block height" value={result.transaction?.blockHeight ?? result.block?.height} mono />
+              <Detail label="Block hash" value={truncateHash(result.block?.hash ?? result.transaction?.blockHash, 14, 10)} mono />
+              <Detail label="Proposer" value={result.block?.proposer} mono />
+              <Detail
+                label="Block timestamp"
+                value={result.block?.timestamp ? formatDate(result.block.timestamp) : '—'}
+              />
+            </dl>
+            {result.credentialHash && (
+              <div className="mt-4 flex items-center gap-1.5 border-t border-neutral-100 pt-3 text-xs text-neutral-400">
+                <Layers aria-hidden="true" className="h-3.5 w-3.5" />
+                Hash: <span className="font-mono">{truncateHash(result.credentialHash, 14, 10)}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex items-start gap-3">
+            <FileSearch className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400" />
+            <div>
+              <h2 className="text-sm font-semibold text-neutral-900">
+                No on-ledger record available
+              </h2>
+              <p className="mt-1 text-sm text-neutral-500">
+                The SecureX ledger returned no blockchain record for this credential
+                (it may not exist on the chain, or it may have been revoked or
+                suspended without a block reference). Only the credential details
+                above are shown.
+              </p>
+            </div>
+          </div>
+        )}
       </Card>
 
       <div className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-4">
