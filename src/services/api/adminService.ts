@@ -3,6 +3,7 @@ import {
   MOCK_AUDIT_EVENTS,
   MOCK_CREDENTIALS,
   MOCK_INSTITUTIONS,
+  MOCK_ISSUERS,
   MOCK_RISK_ASSESSMENTS,
   MOCK_SECURITY_ALERTS,
   MOCK_TRANSACTIONS,
@@ -13,6 +14,7 @@ import {
 import type {
   AuditEvent,
   Institution,
+  Issuer,
   RiskAssessment,
   SecurityAlert,
   User,
@@ -22,6 +24,7 @@ import { fetchAPI, unwrapResponse } from './client';
 export interface AdminStats {
   totalUsers: number;
   totalInstitutions: number;
+  totalIssuers: number;
   totalCredentials: number;
   totalVerifications: number;
   activeAlerts: number;
@@ -36,6 +39,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     return {
       totalUsers: MOCK_USERS.length,
       totalInstitutions: MOCK_INSTITUTIONS.length,
+      totalIssuers: MOCK_ISSUERS.length,
       totalCredentials: MOCK_CREDENTIALS.length,
       totalVerifications: MOCK_VERIFICATION_HISTORY.length,
       activeAlerts: MOCK_SECURITY_ALERTS.filter(
@@ -97,5 +101,14 @@ export async function getFraudAlerts(): Promise<RiskAssessment[]> {
     return MOCK_RISK_ASSESSMENTS;
   }
   const response = await fetchAPI<RiskAssessment[]>('/admin/security/fraud');
+  return unwrapResponse(response);
+}
+
+export async function getAllIssuers(): Promise<Issuer[]> {
+  if (IS_MOCK) {
+    await mockDelay();
+    return MOCK_ISSUERS;
+  }
+  const response = await fetchAPI<Issuer[]>('/admin/issuers');
   return unwrapResponse(response);
 }

@@ -14,7 +14,9 @@ import {
   Button,
   Card,
   Checkbox,
+  Dialog,
   EmptyState,
+  ErrorState,
   Input,
   Pagination,
   Select,
@@ -24,23 +26,10 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { getCredentials } from '@/services/api/credentialService';
 import { formatDate } from '@/utils/format';
+import { getStatusBadgeVariant } from '@/utils/status';
 import type { Credential } from '@/types';
 
 const PAGE_SIZE = 8;
-
-const statusVariant: Record<
-  string,
-  'success' | 'danger' | 'warning' | 'default'
-> = {
-  VALID: 'success',
-  REVOKED: 'danger',
-  SUSPENDED: 'warning',
-  EXPIRED: 'default',
-  TAMPERED: 'danger',
-  SUSPICIOUS: 'warning',
-  NOT_FOUND: 'default',
-  INVALID: 'danger',
-};
 
 export default function InstitutionCredentialsPage() {
   const { user } = useAuth();
@@ -48,14 +37,17 @@ export default function InstitutionCredentialsPage() {
 
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError(false);
 
     try {
       const data = await getCredentials();
@@ -63,6 +55,7 @@ export default function InstitutionCredentialsPage() {
         data.filter((c) => c.institutionId === institutionId),
       );
     } catch {
+      setError(true);
       setCredentials([]);
     } finally {
       setLoading(false);
@@ -139,6 +132,26 @@ export default function InstitutionCredentialsPage() {
 
     setSelected(next);
   };
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-bold text-neutral-900">
+            Managed Credentials
+          </h1>
+          <p className="text-sm text-neutral-500">
+            All credentials issued by your institution.
+          </p>
+        </div>
+        <ErrorState
+          title="Failed to load credentials"
+          description="There was a problem loading your credentials. Please try again."
+          onRetry={loadData}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-full space-y-7 pb-10">
@@ -295,6 +308,7 @@ export default function InstitutionCredentialsPage() {
                   { label: 'Expired', value: 'EXPIRED' },
                   { label: 'Tampered', value: 'TAMPERED' },
                   { label: 'Suspicious', value: 'SUSPICIOUS' },
+                  { label: 'Not Found', value: 'NOT_FOUND' },
                 ]}
                 value={statusFilter}
                 onChange={(e) => {
@@ -343,6 +357,7 @@ export default function InstitutionCredentialsPage() {
                 variant="danger"
                 size="sm"
                 leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                onClick={() => setShowRevokeConfirm(true)}
               >
                 Revoke Selected
               </Button>
@@ -452,7 +467,7 @@ export default function InstitutionCredentialsPage() {
 
                     <td className="px-4 py-4">
                       <Badge
-                        variant={statusVariant[cred.status] ?? 'default'}
+                        variant={getStatusBadgeVariant(cred.status)}
                         size="sm"
                         dot
                       >
@@ -520,6 +535,20 @@ export default function InstitutionCredentialsPage() {
           Protected
         </span>
       </div>
+
+      <Dialog
+        open={showRevokeConfirm}
+        title="Revoke credentials"
+        message={`You selected ${selected.size} credential${selected.size > 1 ? 's' : ''} for revocation. Automatic revocation is not yet available — this action is being rolled out soon and won't modify any credentials yet.`}
+        variant="info"
+        confirmLabel="Got it"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          setShowRevokeConfirm(false);
+          setSelected(new Set());
+        }}
+        onCancel={() => setShowRevokeConfirm(false)}
+      />
     </div>
   );
 }

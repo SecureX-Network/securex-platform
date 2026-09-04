@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowLeft,
   Award,
   Building2,
   Calendar,
   CheckCircle2,
+  Clock,
   Fingerprint,
   Layers,
   Link2,
   QrCode,
   Share2,
   ShieldCheck,
+  ShieldX,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   Badge,
@@ -21,8 +25,10 @@ import {
   Spinner,
   StatusIndicator,
 } from '@/components/ui';
-import { getCredentialById } from '@/services/api/credentialService';
+import { getRealCredential, getRealCredentialHistory } from '@/features/holder-admin/services/holderAdminService';
+import type { ApiCredentialHistoryEntry } from '@/features/holder-admin/types/backend';
 import type { Credential } from '@/types';
+import { useAuth } from '@/hooks/useAuth';
 import { formatDate, truncateHash } from '@/utils';
 
 const statusTone: Record<
@@ -39,20 +45,97 @@ const statusTone: Record<
   NOT_FOUND: { label: 'Not found', classes: 'bg-neutral-100 text-neutral-600' },
 };
 
+interface LifecycleEvent {
+  type: string;
+  label: string;
+  date: string;
+  icon: typeof CheckCircle2;
+  color: string;
+  key?: string;
+  onChain?: boolean;
+  txId?: string;
+  blockHeight?: number;
+}
+
+function buildLifecycleHistory(credential: Credential): LifecycleEvent[] {
+  const events: LifecycleEvent[] = [];
+
+  events.push({
+    type: 'ISSUED',
+    label: 'Credential issued',
+    date: credential.issuedAt,
+    icon: CheckCircle2,
+    color: 'bg-trust-50 text-trust-600',
+  });
+
+  if (credential.revokedAt) {
+    events.push({
+      type: 'REVOKED',
+      label: credential.revokedReason
+        ? `Revoked: ${credential.revokedReason}`
+        : 'Credential revoked',
+      date: credential.revokedAt,
+      icon: ShieldX,
+      color: 'bg-danger-50 text-danger-600',
+    });
+  }
+
+  if (credential.status === 'SUSPENDED') {
+    events.push({
+      type: 'SUSPENDED',
+      label: 'Credential suspended',
+      date: credential.issuedAt,
+      icon: ShieldAlert,
+      color: 'bg-warning-50 text-warning-600',
+    });
+  }
+
+  if (credential.status === 'TAMPERED') {
+    events.push({
+      type: 'TAMPERED',
+      label: 'Tamper detected',
+      date: credential.issuedAt,
+      icon: ShieldX,
+      color: 'bg-danger-50 text-danger-600',
+    });
+  }
+
+  if (
+    credential.expiresAt &&
+    new Date(credential.expiresAt).getTime() < Date.now()
+  ) {
+    events.push({
+      type: 'EXPIRED',
+      label: 'Credential expired',
+      date: credential.expiresAt,
+      icon: Clock,
+      color: 'bg-neutral-100 text-neutral-500',
+    });
+  }
+
+  return events.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+}
+
 function DetailRow({
   label,
   value,
-  className,
+  mono,
+  accent,
 }: {
   label: string;
   value: string;
-  className?: string;
+  mono?: boolean;
+  accent?: boolean;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2.5">
       <dt className="text-sm text-neutral-500">{label}</dt>
       <dd
-        className={`break-all text-right text-sm font-medium text-neutral-800 ${className ?? ''}`}
+        className={`break-all text-right text-sm font-medium ${
+          mono ? 'font-mono text-xs' : ''
+        } ${accent ? 'text-securex-600' : 'text-neutral-800'}`}
       >
         {value}
       </dd>
@@ -62,27 +145,40 @@ function DetailRow({
 
 export default function HolderCredentialDetailPage() {
   const { credentialId = '' } = useParams<{ credentialId: string }>();
+  const { user } = useAuth();
+  const holderId = user?.id ?? 'usr-holder-001';
   const [credential, setCredential] = useState<Credential | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [realHistory, setRealHistory] = useState<ApiCredentialHistoryEntry[]>([]);
+  const [accessError, setAccessError] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getCredentialById(credentialId)
+    setRealHistory([]);
+    setAccessError(null);
+    getRealCredential(credentialId, holderId)
       .then((data) => {
         if (active) setCredential(data);
       })
-      .catch(() => {
-        if (active) setCredential(null);
+      .catch((e) => {
+        if (!active) return;
+        setCredential(null);
+        if (typeof e === 'object' && e !== null && 'status' in e) {
+          setAccessError((e as { status?: number }).status ?? null);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
       });
+    getRealCredentialHistory(credentialId)
+      .then((history) => active && setRealHistory(history))
+      .catch(() => active && setRealHistory([]));
     return () => {
       active = false;
     };
-  }, [credentialId]);
+  }, [credentialId, holderId]);
 
   if (loading) {
     return (
@@ -93,6 +189,22 @@ export default function HolderCredentialDetailPage() {
   }
 
   if (!credential) {
+    if (accessError === 403) {
+      return (
+        <div className="space-y-4">
+          <Link
+            to="/holder/credentials"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to credentials
+          </Link>
+          <ErrorState
+            title="Access denied"
+            description="This credential is not in your wallet. You can only view credentials issued to you."
+          />
+        </div>
+      );
+    }
     return (
       <div className="space-y-4">
         <Link
@@ -103,13 +215,33 @@ export default function HolderCredentialDetailPage() {
         </Link>
         <ErrorState
           title="Credential not found"
-          description="We couldn’t find this credential in your wallet."
+          description="We couldn\u2019t find this credential in your wallet."
         />
       </div>
     );
   }
 
   const tone = statusTone[credential.status];
+  const lifecycle = buildLifecycleHistory(credential);
+
+  const realEvents = realHistory.map((event, index) => ({
+    type: event.type,
+    label: `${event.type.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} on-chain`,
+    date: event.timestamp,
+    icon: event.type === 'REVOKED' ? ShieldX : event.type.includes('SUSPEND') ? ShieldAlert : CheckCircle2,
+    color:
+      event.type === 'REVOKED'
+        ? 'bg-danger-50 text-danger-600'
+        : event.type.includes('SUSPEND')
+          ? 'bg-warning-50 text-warning-600'
+          : 'bg-trust-50 text-trust-600',
+    txId: event.txId,
+    blockHeight: event.blockHeight,
+    key: `${event.type}-${index}`,
+    onChain: true,
+  }));
+  const shownLifecycle =
+    realEvents.length > 0 ? realEvents : lifecycle;
 
   const handleCopy = async () => {
     const link = `${window.location.origin}/verify/${credential.credentialId}`;
@@ -141,11 +273,14 @@ export default function HolderCredentialDetailPage() {
               {credential.title}
             </h1>
             <p className="mt-1 text-sm text-neutral-500">
-              {credential.type} · {credential.institutionName}
+              {credential.type} \u00b7 {credential.institutionName}
             </p>
-            <span className={`mt-2 inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.classes}`}>
-              {tone.label}
-            </span>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.classes}`}>
+                {tone.label}
+              </span>
+              <StatusIndicator status={credential.status} size="sm" />
+            </div>
           </div>
         </div>
       </section>
@@ -155,14 +290,10 @@ export default function HolderCredentialDetailPage() {
           Credential Information
         </h2>
         <dl className="divide-y divide-neutral-100">
-          <DetailRow label="Credential ID" value={credential.credentialId} className="font-mono text-xs" />
+          <DetailRow label="Credential ID" value={credential.credentialId} mono />
+          <DetailRow label="Type" value={credential.type} />
           <DetailRow label="Holder" value={credential.holderName} />
-          <div className="flex items-center justify-between gap-4 py-2.5">
-            <dt className="text-sm text-neutral-500">Status</dt>
-            <dd>
-              <StatusIndicator status={credential.status} />
-            </dd>
-          </div>
+          <DetailRow label="Issuer" value={credential.issuerName} />
         </dl>
         {credential.description && (
           <p className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600">
@@ -203,7 +334,7 @@ export default function HolderCredentialDetailPage() {
           {credential.revokedAt && (
             <>
               <DetailRow label="Revoked" value={formatDate(credential.revokedAt)} />
-              <DetailRow label="Revocation reason" value={credential.revokedReason ?? '—'} />
+              <DetailRow label="Revocation reason" value={credential.revokedReason ?? '\u2014'} />
             </>
           )}
         </dl>
@@ -220,12 +351,13 @@ export default function HolderCredentialDetailPage() {
           <DetailRow
             label="Transaction hash"
             value={truncateHash(credential.blockchainTxHash)}
-            className="font-mono text-xs text-securex-600"
+            mono
+            accent
           />
           <DetailRow
             label="Merkle root"
             value={truncateHash(credential.merkleRoot)}
-            className="font-mono text-xs"
+            mono
           />
           <DetailRow label="Block" value="Recorded on-chain" />
         </dl>
@@ -246,7 +378,7 @@ export default function HolderCredentialDetailPage() {
           <DetailRow
             label="Signature"
             value={truncateHash(credential.digitalSignature)}
-            className="font-mono text-xs"
+            mono
           />
           <DetailRow label="Algorithm" value="Ed25519-SHA256" />
         </dl>
@@ -256,6 +388,54 @@ export default function HolderCredentialDetailPage() {
         </div>
       </Card>
 
+      {shownLifecycle.length > 0 && (
+        <Card>
+          <div className="mb-3 flex items-center gap-2">
+            <Clock className="h-4 w-4 text-neutral-400" />
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
+              Lifecycle History
+            </h2>
+          </div>
+          <div className="relative ml-3 border-l-2 border-neutral-200 pl-6">
+            {shownLifecycle.map((event) => {
+              const Icon = event.icon;
+              return (
+                <div
+                  key={event.key ?? `${event.type}-${event.date}`}
+                  className="relative pb-6 last:pb-0"
+                >
+                  <span
+                    className={`absolute -left-[25px] flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white ${event.color}`}
+                  >
+                    <Icon className="h-3 w-3" />
+                  </span>
+                  <p className="text-sm font-medium text-neutral-800">
+                    {event.label}
+                  </p>
+                  <p className="text-xs text-neutral-500">
+                    {formatDate(event.date, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                  {event.onChain && event.txId && (
+                    <p className="mt-0.5 font-mono text-[11px] text-neutral-400">
+                      tx {truncateHash(event.txId)}
+                      {event.blockHeight !== undefined && (
+                        <> \u00b7 block #{event.blockHeight}</>
+                      )}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
       <Card>
         <div className="mb-3 flex items-center gap-2">
           <QrCode className="h-4 w-4 text-neutral-400" />
@@ -264,16 +444,16 @@ export default function HolderCredentialDetailPage() {
           </h2>
         </div>
         <div className="flex flex-col items-center gap-3 rounded-xl bg-neutral-50 p-5">
-          <div className="flex h-40 w-40 items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-white">
-            <span className="text-center">
-              <QrCode className="mx-auto h-8 w-8 text-neutral-400" />
-              <span className="mt-1 block font-mono text-[10px] text-neutral-400">
-                {credential.credentialId}
-              </span>
-            </span>
+          <div className="flex h-40 w-40 items-center justify-center rounded-lg border border-neutral-200 bg-white p-2">
+            <QRCodeSVG
+              value={`${window.location.origin}/verify/${credential.credentialId}`}
+              size={132}
+              level="M"
+              includeMargin={false}
+            />
           </div>
           <p className="text-center text-xs text-neutral-500">
-            Scan to verify this credential securely.
+            Scan this QR code to verify the credential securely.
           </p>
           <Button
             fullWidth

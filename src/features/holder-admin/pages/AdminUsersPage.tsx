@@ -3,7 +3,9 @@ import { Eye, Search, ShieldBan, UserCircle2 } from 'lucide-react';
 import {
   Badge,
   Button,
+  Dialog,
   Input,
+  ModeIndicator,
   Select,
   Table,
   EmptyState,
@@ -12,27 +14,16 @@ import {
 import type { Column } from '@/components/ui';
 import { getAllUsers } from '@/services/api/adminService';
 import { MOCK_INSTITUTIONS } from '@/services/mock';
-import type { User, UserRole } from '@/types';
+import { roleBadgeVariant } from '@/constants/badges';
+import type { User } from '@/types';
 import { formatDate } from '@/utils';
-
-const roleVariant: Record<UserRole, 'default' | 'success' | 'info' | 'purple' | 'warning' | 'danger'> = {
-  PUBLIC: 'default',
-  HOLDER: 'success',
-  INSTITUTION: 'info',
-  ISSUER: 'purple',
-  EMPLOYER: 'warning',
-  ADMIN: 'danger',
-  SECURITY_ADMIN: 'danger',
-  NETWORK_ADMIN: 'danger',
-  AUDITOR: 'warning',
-};
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -40,9 +31,7 @@ export default function AdminUsersPage() {
       .then((data) => active && setUsers(data))
       .catch(() => active && setUsers([]))
       .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const roleOptions = useMemo(() => {
@@ -52,6 +41,14 @@ export default function AdminUsersPage() {
       ...roles.map((role) => ({ label: role.replace(/_/g, ' '), value: role })),
     ];
   }, [users]);
+
+  const counts = useMemo(() => ({
+    ALL: users.length,
+    HOLDER: users.filter((u) => u.role === 'HOLDER').length,
+    INSTITUTION: users.filter((u) => u.role === 'INSTITUTION').length,
+    EMPLOYER: users.filter((u) => u.role === 'EMPLOYER').length,
+    ADMIN: users.filter((u) => u.role === 'ADMIN' || u.role === 'SECURITY_ADMIN' || u.role === 'NETWORK_ADMIN').length,
+  }), [users]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -66,7 +63,7 @@ export default function AdminUsersPage() {
   }, [users, search, roleFilter]);
 
   const institutionName = (id?: string) =>
-    id ? MOCK_INSTITUTIONS.find((i) => i.id === id)?.name ?? '—' : '—';
+    id ? MOCK_INSTITUTIONS.find((i) => i.id === id)?.name ?? '\u2014' : '\u2014';
 
   const columns: Column<User>[] = useMemo(
     () => [
@@ -90,7 +87,7 @@ export default function AdminUsersPage() {
         key: 'role',
         header: 'Role',
         accessor: (row) => (
-          <Badge variant={roleVariant[row.role]}>
+          <Badge variant={roleBadgeVariant[row.role]}>
             {row.role.replace(/_/g, ' ')}
           </Badge>
         ),
@@ -99,17 +96,18 @@ export default function AdminUsersPage() {
       {
         key: 'institutionId',
         header: 'Institution',
-        accessor: (row) => institutionName(row.institutionId),
-      },
-      {
-        key: 'status',
-        header: 'Status',
-        accessor: () => <Badge variant="success">Active</Badge>,
+        accessor: (row) => (
+          <span className="text-sm text-neutral-600">{institutionName(row.institutionId)}</span>
+        ),
       },
       {
         key: 'lastLoginAt',
         header: 'Last Login',
-        accessor: (row) => (row.lastLoginAt ? formatDate(row.lastLoginAt) : '—'),
+        accessor: (row) => (
+          <span className="text-sm text-neutral-500">
+            {row.lastLoginAt ? formatDate(row.lastLoginAt) : '\u2014'}
+          </span>
+        ),
         sortable: true,
         sortValue: (row) => row.lastLoginAt ?? '',
       },
@@ -138,6 +136,7 @@ export default function AdminUsersPage() {
                 size="sm"
                 leftIcon={<ShieldBan className="h-4 w-4" />}
                 className="text-danger-600"
+                onClick={(e) => { e.stopPropagation(); setDeactivateTarget(row); }}
               >
                 Deactivate
               </Button>
@@ -156,16 +155,24 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-5">
       <section>
-        <h1 className="text-2xl font-bold text-neutral-900">Users</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Directory of all platform users with roles and account status.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-neutral-900">Users</h1>
+            <p className="mt-1 text-sm text-neutral-500">
+              Directory of all platform users.{' '}
+              <span className="font-medium text-neutral-700">{counts.HOLDER} holders</span>,{' '}
+              <span className="font-medium text-neutral-700">{counts.INSTITUTION} institutions</span>,{' '}
+              <span className="font-medium text-neutral-700">{counts.EMPLOYER} employers</span>.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search users…"
+          placeholder="Search users\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
@@ -177,17 +184,6 @@ export default function AdminUsersPage() {
           onChange={(event) => setRoleFilter(event.target.value)}
           options={roleOptions}
           className="sm:w-48"
-        />
-        <Select
-          aria-label="Filter by status"
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-          options={[
-            { label: 'All statuses', value: 'ALL' },
-            { label: 'Active', value: 'ACTIVE' },
-            { label: 'Deactivated', value: 'DEACTIVATED' },
-          ]}
-          className="sm:w-44"
         />
       </div>
 
@@ -206,6 +202,22 @@ export default function AdminUsersPage() {
             description="Try adjusting your search or filters."
           />
         }
+      />
+
+      <Dialog
+        open={deactivateTarget !== null}
+        title="Deactivate User?"
+        message={
+          <>
+            This will deactivate <strong>{deactivateTarget?.name}</strong> and
+            prevent them from accessing the platform. They will need to be
+            reactivated to regain access.
+          </>
+        }
+        variant="danger"
+        confirmLabel="Deactivate User"
+        onConfirm={() => setDeactivateTarget(null)}
+        onCancel={() => setDeactivateTarget(null)}
       />
     </div>
   );

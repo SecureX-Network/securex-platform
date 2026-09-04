@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import {
   Activity,
+  Bell,
   KeyRound,
-  Mail,
   Save,
   Settings2,
   ShieldCheck,
@@ -12,7 +12,9 @@ import {
   Button,
   Card,
   Checkbox,
+  Dialog,
   Input,
+  ModeIndicator,
   Select,
 } from '@/components/ui';
 
@@ -28,14 +30,14 @@ const MOCK_API_KEYS: ApiKey[] = [
   {
     id: 'key-1',
     label: 'Production verification',
-    prefix: 'sx_live_••••••••a3f9',
+    prefix: 'sx_live_\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022a3f9',
     createdAt: 'Jan 12, 2026',
     lastUsed: '2 hours ago',
   },
   {
     id: 'key-2',
     label: 'Sandbox integration',
-    prefix: 'sx_test_••••••••7c21',
+    prefix: 'sx_test_\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u20227c21',
     createdAt: 'Mar 03, 2026',
     lastUsed: '3 days ago',
   },
@@ -47,15 +49,21 @@ export default function AdminSettingsPage() {
   const [auditDigest, setAuditDigest] = useState(true);
   const [blockchainName, setBlockchainName] = useState('SecureX Ledger');
   const [blockInterval, setBlockInterval] = useState('6');
+  const [revokeKey, setRevokeKey] = useState<ApiKey | null>(null);
 
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-2xl font-bold text-neutral-900">Platform Settings</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Configure network parameters, access policies, and integration
-          endpoints.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-neutral-900">Platform Settings</h1>
+            <p className="mt-1 text-sm text-neutral-500">
+              Configure network parameters, access policies, and integration
+              endpoints.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <Card>
@@ -186,7 +194,12 @@ export default function AdminSettingsPage() {
                     {key.lastUsed}
                   </td>
                   <td className="px-4 py-3">
-                    <Button variant="ghost" size="sm" className="text-danger-600">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-danger-600"
+                      onClick={() => setRevokeKey(key)}
+                    >
                       Revoke
                     </Button>
                   </td>
@@ -204,7 +217,7 @@ export default function AdminSettingsPage() {
 
       <Card>
         <div className="mb-4 flex items-center gap-2">
-          <Mail className="h-4 w-4 text-securex-600" />
+          <Bell className="h-4 w-4 text-securex-600" />
           <h2 className="text-base font-semibold text-neutral-900">
             Notification Settings
           </h2>
@@ -226,18 +239,48 @@ export default function AdminSettingsPage() {
       </Card>
 
       <Card>
-        <div className="mb-2 flex items-center gap-2">
+        <div className="mb-4 flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-trust-600" />
           <h2 className="text-base font-semibold text-neutral-900">
             Access Control
           </h2>
         </div>
-        <p className="text-sm text-neutral-500">
+        <p className="mb-3 text-sm text-neutral-500">
           Role-based access controls are enforced for institutions, issuers,
           employers, and security staff. Session tokens expire after 24 hours.
           MFA is required for all administrative roles.
         </p>
+        <div className="rounded-lg bg-neutral-50 p-4">
+          <p className="text-xs font-medium uppercase tracking-wider text-neutral-400">
+            Roles enforced
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR', 'INSTITUTION', 'ISSUER', 'EMPLOYER', 'HOLDER'].map((role) => (
+              <span
+                key={role}
+                className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-neutral-600 ring-1 ring-inset ring-neutral-200"
+              >
+                {role.replace(/_/g, ' ')}
+              </span>
+            ))}
+          </div>
+        </div>
       </Card>
+
+      <Dialog
+        open={revokeKey !== null}
+        title="Revoke API key?"
+        message={
+          <>
+            This will permanently revoke the <strong>{revokeKey?.label}</strong>{' '}
+            key. Any integrations using it will immediately stop working.
+          </>
+        }
+        variant="danger"
+        confirmLabel="Revoke Key"
+        onConfirm={() => setRevokeKey(null)}
+        onCancel={() => setRevokeKey(null)}
+      />
     </div>
   );
 }

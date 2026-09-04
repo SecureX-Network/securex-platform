@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import {
   Badge,
+  Button,
   Input,
   Select,
   Table,
@@ -15,23 +16,9 @@ import {
 } from '@/components/ui';
 import type { Column } from '@/components/ui';
 import { getSecurityAlerts } from '@/services/api/adminService';
+import { severityBadgeVariant, alertStatusBadgeVariant } from '@/constants/badges';
 import type { SecurityAlert } from '@/types';
 import { formatDate, classNames } from '@/utils';
-
-const severityVariant: Record<SecurityAlert['severity'], 'danger' | 'warning' | 'info'> = {
-  CRITICAL: 'danger',
-  HIGH: 'warning',
-  MEDIUM: 'warning',
-  LOW: 'info',
-};
-
-const statusVariant: Record<SecurityAlert['status'], 'default' | 'success' | 'warning' | 'info' | 'danger'> = {
-  NEW: 'danger',
-  ACKNOWLEDGED: 'warning',
-  INVESTIGATING: 'info',
-  RESOLVED: 'success',
-  DISMISSED: 'default',
-};
 
 export default function AdminSecurityAlertsPage() {
   const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
@@ -47,10 +34,20 @@ export default function AdminSecurityAlertsPage() {
       .then((data) => active && setAlerts(data))
       .catch(() => active && setAlerts([]))
       .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
+
+  const counts = useMemo(() => {
+    const active = alerts.filter(
+      (a) => !['RESOLVED', 'DISMISSED'].includes(a.status),
+    ).length;
+    return {
+      ALL: alerts.length,
+      active,
+      NEW: alerts.filter((a) => a.status === 'NEW').length,
+      INVESTIGATING: alerts.filter((a) => a.status === 'INVESTIGATING').length,
+    };
+  }, [alerts]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -67,13 +64,19 @@ export default function AdminSecurityAlertsPage() {
     });
   }, [alerts, search, severityFilter, statusFilter]);
 
+  const updateAlertStatus = (id: string, status: SecurityAlert['status']) => {
+    setAlerts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, status } : a)),
+    );
+  };
+
   const columns: Column<SecurityAlert>[] = useMemo(
     () => [
       {
         key: 'severity',
         header: 'Severity',
         accessor: (row) => (
-          <Badge variant={severityVariant[row.severity]}>{row.severity}</Badge>
+          <Badge variant={severityBadgeVariant[row.severity]}>{row.severity}</Badge>
         ),
         sortable: true,
         sortValue: (row) =>
@@ -103,7 +106,7 @@ export default function AdminSecurityAlertsPage() {
         key: 'status',
         header: 'Status',
         accessor: (row) => (
-          <Badge variant={statusVariant[row.status]}>{row.status}</Badge>
+          <Badge variant={alertStatusBadgeVariant[row.status]}>{row.status}</Badge>
         ),
         sortable: true,
       },
@@ -146,14 +149,16 @@ export default function AdminSecurityAlertsPage() {
       <section>
         <h1 className="text-2xl font-bold text-neutral-900">Security Alerts</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Triage security alerts from tamper attempts to brute-force attacks.
+          Triage security alerts from tamper attempts to brute-force attacks.{' '}
+          <span className="font-medium text-neutral-700">{counts.active} active</span>,{' '}
+          <span className="font-medium text-neutral-700">{counts.NEW} new</span>.
         </p>
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search alerts…"
+          placeholder="Search alerts\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
@@ -212,7 +217,7 @@ export default function AdminSecurityAlertsPage() {
             <h2 className="text-base font-semibold text-neutral-900">
               {expandedAlert.title}
             </h2>
-            <Badge variant={severityVariant[expandedAlert.severity]}>
+            <Badge variant={severityBadgeVariant[expandedAlert.severity]}>
               {expandedAlert.severity}
             </Badge>
           </div>
@@ -231,9 +236,9 @@ export default function AdminSecurityAlertsPage() {
             </p>
             <p className="text-neutral-500">
               Status:{' '}
-              <span className="font-medium text-neutral-800">
+              <Badge variant={alertStatusBadgeVariant[expandedAlert.status]}>
                 {expandedAlert.status}
-              </span>
+              </Badge>
             </p>
             <p className="text-neutral-500">
               Detected:{' '}
@@ -245,6 +250,26 @@ export default function AdminSecurityAlertsPage() {
           <p className="rounded-lg bg-neutral-50 p-4 text-sm leading-relaxed text-neutral-600">
             {expandedAlert.description}
           </p>
+          <div className="mt-4 flex gap-2">
+            {expandedAlert.status !== 'ACKNOWLEDGED' && expandedAlert.status !== 'INVESTIGATING' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateAlertStatus(expandedAlert.id, 'ACKNOWLEDGED')}
+              >
+                Acknowledge
+              </Button>
+            )}
+            {expandedAlert.status !== 'INVESTIGATING' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateAlertStatus(expandedAlert.id, 'INVESTIGATING')}
+              >
+                Investigate
+              </Button>
+            )}
+          </div>
         </div>
       )}
     </div>

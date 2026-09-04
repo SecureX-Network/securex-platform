@@ -1,28 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, ArrowRightLeft, Hash, IdCard } from 'lucide-react';
-import { Badge } from '@/components/ui';
-import { Button } from '@/components/ui';
-import { Card } from '@/components/ui';
-import { ErrorState } from '@/components/ui';
-import { getTransactionById } from '@/services/api/blockchainService';
-import type { BlockchainTransaction } from '@/types';
-import { formatDate, truncateHash } from '@/utils';
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Hash } from 'lucide-react';
+import { Breadcrumb, Button, Card, ErrorState, Spinner } from '@/components/ui';
+import { formatDate } from '@/utils';
 import { ExplorerLayout } from '../components/ExplorerLayout';
-
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-3">
-      <dt className="shrink-0 text-sm text-slate-500">{label}</dt>
-      <dd className="text-right text-sm font-medium text-slate-900">{value}</dd>
-    </div>
-  );
-}
+import { HashDisplay } from '../components/HashDisplay';
+import { InfoRow } from '../components/InfoRow';
+import { DataSourceBadge } from '../components/DataSourceBadge';
+import {
+  getDataSourceMode,
+  getExplorerTransactionById,
+  type ExplorerTransactionView,
+} from '../services/explorerService';
 
 export default function ExplorerTransactionDetailPage() {
   const { txId } = useParams<{ txId: string }>();
   const navigate = useNavigate();
-  const [transaction, setTransaction] = useState<BlockchainTransaction | null>(null);
+  const mode = getDataSourceMode();
+  const [transaction, setTransaction] = useState<ExplorerTransactionView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +32,7 @@ export default function ExplorerTransactionDetailPage() {
     }
     setLoading(true);
     setError(null);
-    getTransactionById(txId)
+    getExplorerTransactionById(txId)
       .then((data) => {
         if (active) setTransaction(data);
       })
@@ -51,16 +46,26 @@ export default function ExplorerTransactionDetailPage() {
     return () => {
       active = false;
     };
-  }, [txId]);
+  }, [txId, mode]);
 
   return (
     <ExplorerLayout>
       <div className="space-y-6">
+        <Breadcrumb
+          ariaLabel="Transaction breadcrumb"
+          items={[
+            { label: 'Explorer', href: '/explorer' },
+            { label: 'Transactions', href: '/explorer/transactions' },
+            { label: 'Transaction Details', active: true },
+          ]}
+        />
+
         <div className="flex items-center justify-between gap-4">
           <Button variant="ghost" size="sm" onClick={() => navigate('/explorer/transactions')}>
             <ArrowLeft aria-hidden="true" className="h-4 w-4" />
             Transactions
           </Button>
+          <DataSourceBadge mode={mode} />
         </div>
 
         <div>
@@ -73,50 +78,60 @@ export default function ExplorerTransactionDetailPage() {
           </p>
         </div>
 
-        {!loading && (error || !transaction) ? (
+        {loading ? (
+          <Card>
+            <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
+              <Spinner size="sm" />
+              Loading transaction…
+            </div>
+          </Card>
+        ) : error || !transaction ? (
           <ErrorState
             title="Transaction not found"
             description={error ?? 'No transaction found with this ID.'}
             onRetry={() => navigate('/explorer/transactions')}
             retryLabel="Back to transactions"
           />
-        ) : transaction ? (
+        ) : (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card title="Transaction Information" bodyClassName="p-0">
               <dl className="divide-y divide-slate-100 px-5">
-                <InfoRow label="ID" value={truncateHash(transaction.id, 14, 10)} />
                 <InfoRow
-                  label="Block Height"
+                  label="ID"
                   value={
-                    <a
-                      href={`/explorer/blocks/${transaction.blockHeight}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(`/explorer/blocks/${transaction.blockHeight}`);
-                      }}
-                      className="inline-flex items-center gap-1.5 text-securex-700 hover:underline"
-                    >
-                      <Hash aria-hidden="true" className="h-3.5 w-3.5" />
-                      #{transaction.blockHeight}
-                      <ArrowRight aria-hidden="true" className="h-3 w-3" />
-                    </a>
+                    <HashDisplay value={transaction.id} startChars={14} endChars={10} />
                   }
                 />
+                {transaction.blockHeight > 0 && (
+                  <InfoRow
+                    label="Block Height"
+                    value={
+                      <a
+                        href={`/explorer/blocks/${transaction.blockHeight}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(`/explorer/blocks/${transaction.blockHeight}`);
+                        }}
+                        className="inline-flex items-center gap-1.5 text-securex-700 hover:underline"
+                      >
+                        <Hash aria-hidden="true" className="h-3.5 w-3.5" />
+                        #{transaction.blockHeight}
+                        <ArrowRight aria-hidden="true" className="h-3 w-3" />
+                      </a>
+                    }
+                  />
+                )}
                 <InfoRow
                   label="Type"
                   value={transaction.type.replace(/_/g, ' ')}
                 />
                 <InfoRow
-                  label="Status"
-                  value={
-                    transaction.status === 'CONFIRMED' ? (
-                      <Badge variant="success">Confirmed</Badge>
-                    ) : transaction.status === 'PENDING' ? (
-                      <Badge variant="warning">Pending</Badge>
-                    ) : (
-                      <Badge variant="danger">Failed</Badge>
-                    )
-                  }
+                  label="Protocol"
+                  value={<span className="text-sm text-slate-700">{transaction.protocolVersion}</span>}
+                />
+                <InfoRow
+                  label="Nonce"
+                  value={transaction.nonce}
                 />
                 <InfoRow
                   label="Timestamp"
@@ -129,51 +144,26 @@ export default function ExplorerTransactionDetailPage() {
                     second: '2-digit',
                   })}
                 />
-                <InfoRow label="Confirmations" value={transaction.confirmations} />
-                {transaction.gasUsed !== undefined && (
-                  <InfoRow label="Gas Used" value={transaction.gasUsed.toLocaleString()} />
-                )}
               </dl>
             </Card>
 
-            <div className="space-y-6">
-              <Card title="Parties" bodyClassName="p-0">
-                <dl className="divide-y divide-slate-100 px-5">
-                  <InfoRow
-                    label="From"
-                    value={<span className="break-all font-mono text-xs">{transaction.from}</span>}
-                  />
-                  <InfoRow
-                    label="To"
-                    value={<span className="break-all font-mono text-xs">{transaction.to}</span>}
-                  />
-                </dl>
-              </Card>
-
-              {transaction.credentialId && (
-                <Card title="Credential" bodyClassName="p-0">
-                  <dl className="divide-y divide-slate-100 px-5">
-                    <InfoRow
-                      label="Credential ID"
-                      value={
-                        <span className="inline-flex items-center gap-1.5 font-mono text-xs text-slate-700">
-                          <IdCard aria-hidden="true" className="h-3.5 w-3.5 text-securex-600" />
-                          {transaction.credentialId}
-                        </span>
-                      }
-                    />
-                  </dl>
-                </Card>
-              )}
-            </div>
+            <Card title="Sender" bodyClassName="p-0">
+              <dl className="divide-y divide-slate-100 px-5">
+                <InfoRow
+                  label="From"
+                  value={
+                    <span className="break-all font-mono text-xs">
+                      <HashDisplay value={transaction.sender} fullDisplay />
+                    </span>
+                  }
+                />
+              </dl>
+            </Card>
           </div>
-        ) : (
-          <Card>
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-securex-600 border-t-transparent" />
-              Loading transaction…
-            </div>
-          </Card>
+        )}
+
+        {mode === 'DEMO' && (
+          <p className="text-xs text-slate-400">Showing demo transaction data.</p>
         )}
       </div>
     </ExplorerLayout>

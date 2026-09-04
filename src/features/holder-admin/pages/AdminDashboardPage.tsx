@@ -14,10 +14,12 @@ import {
 } from 'lucide-react';
 import {
   Card,
+  ModeIndicator,
   Skeleton,
 } from '@/components/ui';
 import { getAdminStats } from '@/services/api/adminService';
 import { MOCK_AUDIT_EVENTS, MOCK_SECURITY_ALERTS } from '@/services/mock';
+import { severityStyles } from '@/constants/badges';
 import type { AdminStats } from '@/services/api/adminService';
 import { formatDate } from '@/utils';
 
@@ -26,11 +28,12 @@ interface StatCardProps {
   value: number | string;
   icon: React.ReactNode;
   accent: string;
+  linkTo?: string;
 }
 
-function StatCard({ label, value, icon, accent }: StatCardProps) {
-  return (
-    <Card className="flex items-center gap-4">
+function StatCard({ label, value, icon, accent, linkTo }: StatCardProps) {
+  const content = (
+    <Card padding="sm" className="flex items-center gap-4 transition-colors hover:border-neutral-300">
       <span
         className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${accent}`}
       >
@@ -42,14 +45,12 @@ function StatCard({ label, value, icon, accent }: StatCardProps) {
       </div>
     </Card>
   );
-}
 
-const severityBadge: Record<string, string> = {
-  CRITICAL: 'bg-danger-50 text-danger-700 ring-danger-600/20',
-  HIGH: 'bg-warning-50 text-warning-700 ring-warning-600/20',
-  MEDIUM: 'bg-warning-50 text-warning-700 ring-warning-600/20',
-  LOW: 'bg-securex-50 text-securex-700 ring-securex-600/20',
-};
+  if (linkTo) {
+    return <Link to={linkTo}>{content}</Link>;
+  }
+  return content;
+}
 
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -66,45 +67,51 @@ export default function AdminDashboardPage() {
     };
   }, []);
 
-  const recentAlerts = MOCK_SECURITY_ALERTS.slice(0, 4);
+  const recentAlerts = MOCK_SECURITY_ALERTS.filter(
+    (a) => !['RESOLVED', 'DISMISSED'].includes(a.status),
+  ).slice(0, 4);
   const recentAudit = MOCK_AUDIT_EVENTS.slice(0, 4);
 
   const statsCards: StatCardProps[] = [
     {
       label: 'Institutions',
-      value: stats?.totalInstitutions ?? '—',
+      value: stats?.totalInstitutions ?? '\u2014',
       icon: <Building2 className="h-6 w-6 text-neutral-600" />,
       accent: 'bg-neutral-100 text-neutral-600',
+      linkTo: '/admin/institutions',
     },
     {
       label: 'Users',
-      value: stats?.totalUsers ?? '—',
+      value: stats?.totalUsers ?? '\u2014',
       icon: <Users className="h-6 w-6 text-securex-600" />,
       accent: 'bg-securex-50 text-securex-600',
+      linkTo: '/admin/users',
     },
     {
       label: 'Issuers',
-      value: stats ? '131' : '—',
+      value: stats?.totalIssuers ?? '\u2014',
       icon: <UserCog className="h-6 w-6 text-purple-600" />,
       accent: 'bg-purple-50 text-purple-600',
+      linkTo: '/admin/issuers',
     },
     {
       label: 'Credentials',
-      value: stats?.totalCredentials ?? '—',
+      value: stats?.totalCredentials ?? '\u2014',
       icon: <CreditCard className="h-6 w-6 text-trust-600" />,
       accent: 'bg-trust-50 text-trust-600',
     },
     {
       label: 'Verifications',
-      value: stats?.totalVerifications ?? '—',
+      value: stats?.totalVerifications ?? '\u2014',
       icon: <Activity className="h-6 w-6 text-sky-600" />,
       accent: 'bg-sky-50 text-sky-600',
     },
     {
-      label: 'Security Alerts',
-      value: stats?.activeAlerts ?? '—',
+      label: 'Active Alerts',
+      value: stats?.activeAlerts ?? '\u2014',
       icon: <ShieldAlert className="h-6 w-6 text-danger-600" />,
       accent: 'bg-danger-50 text-danger-600',
+      linkTo: '/admin/security/alerts',
     },
   ];
 
@@ -116,21 +123,23 @@ export default function AdminDashboardPage() {
             Platform Overview
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Network health, user growth, and security posture at a glance. All
-            values below are <span className="font-medium">demo data</span>.
+            Network health, user growth, and security posture at a glance.
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-trust-400 opacity-75" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-trust-500" />
-          </span>
-          <span className="font-medium text-neutral-700">All systems operational</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-trust-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-trust-500" />
+            </span>
+            <span className="font-medium text-neutral-700">All systems operational</span>
+          </div>
+          <ModeIndicator />
         </div>
       </section>
 
       <section>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           {loading
             ? Array.from({ length: 6 }, (_, i) => (
                 <Skeleton key={i} className="h-20 w-full rounded-xl" />
@@ -159,7 +168,7 @@ export default function AdminDashboardPage() {
           </div>
           {recentAlerts.length === 0 ? (
             <p className="py-6 text-center text-sm text-neutral-400">
-              No security alerts.
+              No active security alerts.
             </p>
           ) : (
             <ul className="divide-y divide-neutral-100">
@@ -171,11 +180,11 @@ export default function AdminDashboardPage() {
                       {alert.title}
                     </p>
                     <p className="text-xs text-neutral-500">
-                      {alert.source} · {formatDate(alert.createdAt)}
+                      {alert.source} \u00b7 {formatDate(alert.createdAt)}
                     </p>
                   </div>
                   <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${severityBadge[alert.severity]}`}
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${severityStyles[alert.severity]}`}
                   >
                     {alert.severity}
                   </span>
@@ -216,7 +225,7 @@ export default function AdminDashboardPage() {
                       {event.action.replace(/_/g, ' ')}
                     </p>
                     <p className="truncate text-xs text-neutral-500">
-                      {event.actor} · {event.target}
+                      {event.actor} \u00b7 {event.target}
                     </p>
                   </div>
                   <span className="shrink-0 text-xs text-neutral-400">
@@ -230,7 +239,7 @@ export default function AdminDashboardPage() {
       </section>
 
       <section>
-        <Card className="p-6">
+        <Card>
           <div className="mb-4 flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-securex-600" />
             <h2 className="text-base font-semibold text-neutral-900">
@@ -242,7 +251,9 @@ export default function AdminDashboardPage() {
               { label: 'Institutions', to: '/admin/institutions', icon: Building2 },
               { label: 'Issuers', to: '/admin/issuers', icon: UserCog },
               { label: 'Users', to: '/admin/users', icon: Users },
-              { label: 'Security Center', to: '/admin/security', icon: ShieldAlert },
+              { label: 'Security Alerts', to: '/admin/security/alerts', icon: ShieldAlert },
+              { label: 'Audit Log', to: '/admin/security/audit', icon: ScrollText },
+              { label: 'Security Center', to: '/admin/security', icon: ShieldCheck },
             ].map((link) => {
               const Icon = link.icon;
               return (

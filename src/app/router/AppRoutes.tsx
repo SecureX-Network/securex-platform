@@ -69,6 +69,12 @@ const ExplorerBlocksPage = lazy(() => import('@/features/explorer-simulation/pag
 const ExplorerBlockDetailPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerBlockDetailPage'));
 const ExplorerTransactionsPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerTransactionsPage'));
 const ExplorerTransactionDetailPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerTransactionDetailPage'));
+const ExplorerValidatorsPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerValidatorsPage'));
+const ExplorerValidatorDetailPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerValidatorDetailPage'));
+const ExplorerNetworkPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerNetworkPage'));
+const AttackSimulationPage = lazy(() => import('@/features/explorer-simulation/pages/AttackSimulationPage'));
+const AttackSimulationDetailPage = lazy(() => import('@/features/explorer-simulation/pages/AttackSimulationDetailPage'));
+const SecurityEvidencePage = lazy(() => import('@/features/explorer-simulation/pages/SecurityEvidencePage'));
 
 const institutionNavigation: NavItem[] = [
   { label: 'Dashboard', path: '/institution/dashboard', icon: LayoutDashboard, end: true },
@@ -194,9 +200,15 @@ export function AppRoutes() {
       {/* Explorer */}
       <Route path="/explorer" element={withSuspense(<ExplorerOverviewPage />)} />
       <Route path="/explorer/blocks" element={withSuspense(<ExplorerBlocksPage />)} />
-      <Route path="/explorer/blocks/:blockHash" element={withSuspense(<ExplorerBlockDetailPage />)} />
+      <Route path="/explorer/blocks/:height" element={withSuspense(<ExplorerBlockDetailPage />)} />
       <Route path="/explorer/transactions" element={withSuspense(<ExplorerTransactionsPage />)} />
       <Route path="/explorer/transactions/:txId" element={withSuspense(<ExplorerTransactionDetailPage />)} />
+      <Route path="/explorer/validators" element={withSuspense(<ExplorerValidatorsPage />)} />
+      <Route path="/explorer/validators/:id" element={withSuspense(<ExplorerValidatorDetailPage />)} />
+      <Route path="/explorer/network" element={withSuspense(<ExplorerNetworkPage />)} />
+      <Route path="/explorer/attack-simulation" element={withSuspense(<AttackSimulationPage />)} />
+      <Route path="/explorer/attack-simulation/:id" element={withSuspense(<AttackSimulationDetailPage />)} />
+      <Route path="/explorer/security/evidence/:id" element={withSuspense(<SecurityEvidencePage />)} />
 
       {/* Misc */}
       <Route path="/unauthorized" element={<UnauthorizedPage />} />

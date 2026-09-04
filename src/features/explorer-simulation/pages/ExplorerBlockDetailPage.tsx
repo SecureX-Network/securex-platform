@@ -1,30 +1,28 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Boxes, FileCheck, Hash, Layers } from 'lucide-react';
-import { Badge } from '@/components/ui';
-import { Button } from '@/components/ui';
-import { Card } from '@/components/ui';
-import { ErrorState } from '@/components/ui';
-import { getBlockByHeight, getTransactions } from '@/services/api/blockchainService';
-import type { BlockchainBlock, BlockchainTransaction } from '@/types';
-import { formatDate, truncateHash } from '@/utils';
+import { ArrowLeft, ArrowRight, Boxes, Layers } from 'lucide-react';
+import { Breadcrumb, Button, Card, EmptyState, ErrorState } from '@/components/ui';
+import { formatDate } from '@/utils';
 import { ExplorerLayout } from '../components/ExplorerLayout';
-
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-3">
-      <dt className="shrink-0 text-sm text-slate-500">{label}</dt>
-      <dd className="text-right text-sm font-medium text-slate-900">{value}</dd>
-    </div>
-  );
-}
+import { HashDisplay } from '../components/HashDisplay';
+import { InfoRow } from '../components/InfoRow';
+import { DataSourceBadge } from '../components/DataSourceBadge';
+import {
+  getDataSourceMode,
+  getExplorerBlockByHeight,
+  getExplorerHealth,
+  type ExplorerBlockView,
+  type ExplorerTransactionView,
+} from '../services/explorerService';
 
 export default function ExplorerBlockDetailPage() {
-  const { blockHash } = useParams<{ blockHash: string }>();
+  const { height: heightParam } = useParams<{ height: string }>();
   const navigate = useNavigate();
-  const height = Number(blockHash);
-  const [block, setBlock] = useState<BlockchainBlock | null>(null);
-  const [transactions, setTransactions] = useState<BlockchainTransaction[]>([]);
+  const height = Number(heightParam);
+  const mode = getDataSourceMode();
+  const [block, setBlock] = useState<ExplorerBlockView | null>(null);
+  const [transactions, setTransactions] = useState<ExplorerTransactionView[]>([]);
+  const [latestBlockHeight, setLatestBlockHeight] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,13 +39,25 @@ export default function ExplorerBlockDetailPage() {
     }
     setLoading(true);
     setError(null);
-    Promise.all([getBlockByHeight(height), getTransactions(1)])
-      .then(([blockData, txsRes]) => {
+    Promise.all([
+      getExplorerBlockByHeight(height),
+      getExplorerHealth().catch(() => ({ height: null })),
+    ])
+      .then(([blockData, health]) => {
         if (!active) return;
         setBlock(blockData);
         setTransactions(
-          txsRes.data.filter((tx) => tx.blockHeight === height).slice(0, 20),
+          blockData.transactions.map((tx) => ({
+            id: tx.id,
+            type: tx.type,
+            timestamp: tx.timestamp,
+            sender: tx.sender,
+            nonce: tx.nonce,
+            blockHeight: blockData.height,
+            protocolVersion: tx.protocolVersion,
+          })),
         );
+        setLatestBlockHeight(health.height ?? blockData.height);
       })
       .catch((e) => {
         if (active)
@@ -59,7 +69,7 @@ export default function ExplorerBlockDetailPage() {
     return () => {
       active = false;
     };
-  }, [height, validHeight]);
+  }, [height, validHeight, mode]);
 
   if (!validHeight) {
     return (
@@ -74,15 +84,27 @@ export default function ExplorerBlockDetailPage() {
     );
   }
 
+  const isLatestKnown = latestBlockHeight !== null && height >= latestBlockHeight;
+
   return (
     <ExplorerLayout>
       <div className="space-y-6">
+        <Breadcrumb
+          ariaLabel="Block breadcrumb"
+          items={[
+            { label: 'Explorer', href: '/explorer' },
+            { label: 'Blocks', href: '/explorer/blocks' },
+            { label: `Block ${height}`, active: true },
+          ]}
+        />
+
         <div className="flex items-center justify-between gap-4">
           <Button variant="ghost" size="sm" onClick={() => navigate('/explorer/blocks')}>
             <ArrowLeft aria-hidden="true" className="h-4 w-4" />
             Blocks
           </Button>
           <div className="flex items-center gap-2">
+            <DataSourceBadge mode={mode} />
             {height > 1 && (
               <Button
                 variant="outline"
@@ -96,6 +118,7 @@ export default function ExplorerBlockDetailPage() {
             <Button
               variant="outline"
               size="sm"
+              disabled={isLatestKnown || loading}
               onClick={() => navigate(`/explorer/blocks/${height + 1}`)}
             >
               Next
@@ -140,28 +163,40 @@ export default function ExplorerBlockDetailPage() {
               bodyClassName="p-0"
             >
               <dl className="divide-y divide-slate-100 px-5">
+                <InfoRow label="Height" value={block.height} />
                 <InfoRow
-                  label="Height"
+                  label="Hash"
                   value={
-                    <span className="inline-flex items-center gap-1.5 text-securex-700">
-                      <Hash aria-hidden="true" className="h-3.5 w-3.5" />
-                      {block.height}
-                    </span>
+                    <HashDisplay value={block.hash} startChars={16} endChars={12} />
                   }
                 />
-                <InfoRow label="Hash" value={truncateHash(block.hash, 16, 12)} />
                 <InfoRow
                   label="Previous Hash"
-                  value={truncateHash(block.previousHash, 14, 10)}
+                  value={
+                    <HashDisplay
+                      value={block.previousHash}
+                      startChars={14}
+                      endChars={10}
+                    />
+                  }
                 />
                 <InfoRow
                   label="Merkle Root"
-                  value={truncateHash(block.merkleRoot, 14, 10)}
+                  value={
+                    <HashDisplay
+                      value={block.merkleRoot}
+                      startChars={14}
+                      endChars={10}
+                    />
+                  }
                 />
                 <InfoRow label="Timestamp" value={formatDate(block.timestamp)} />
-                <InfoRow label="Validator" value={<span className="text-xs">{block.validator}</span>} />
-                <InfoRow label="Transactions" value={block.transactionCount} />
-                <InfoRow label="Size" value={`${(block.size / 1000).toFixed(1)} KB`} />
+                <InfoRow
+                  label="Proposer"
+                  value={<span className="break-all font-mono text-xs">{block.proposerId}</span>}
+                />
+                <InfoRow label="Transactions" value={block.transactions.length} />
+                <InfoRow label="Version" value={`v${block.version}`} />
               </dl>
             </Card>
 
@@ -169,25 +204,20 @@ export default function ExplorerBlockDetailPage() {
               title="Transactions in this Block"
               className="lg:col-span-2"
               padding="none"
-              footer={
-                transactions.length > 12 ? (
-                  <div className="flex justify-end">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => navigate('/explorer/transactions')}
-                    >
-                      View all transactions
-                    </Button>
-                  </div>
-                ) : undefined
-              }
             >
-              {transactions.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 px-6 py-14 text-center text-slate-400">
-                  <FileCheck aria-hidden="true" className="h-10 w-10" />
-                  <p className="text-sm font-medium">No transactions in this block</p>
+              {loading ? (
+                <div className="space-y-2 p-6">
+                  <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-slate-100" />
+                  <div className="h-4 w-5/6 animate-pulse rounded bg-slate-100" />
                 </div>
+              ) : transactions.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon={<Layers aria-hidden="true" className="h-6 w-6" />}
+                  title="No transactions in this block"
+                  description="This block contains no transaction records."
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
@@ -195,7 +225,7 @@ export default function ExplorerBlockDetailPage() {
                       <tr>
                         <th className="px-4 py-3">ID</th>
                         <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Sender</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -205,29 +235,19 @@ export default function ExplorerBlockDetailPage() {
                           onClick={() => navigate(`/explorer/transactions/${tx.id}`)}
                           className="cursor-pointer transition-colors hover:bg-slate-50"
                         >
-                          <td className="px-4 py-3.5 font-mono text-xs text-securex-700">
-                            {truncateHash(tx.id, 12, 8)}
+                          <td className="px-4 py-3.5">
+                            <HashDisplay
+                              value={tx.id}
+                              startChars={12}
+                              endChars={8}
+                              className="text-securex-700"
+                            />
                           </td>
                           <td className="px-4 py-3.5 text-sm text-slate-600">
                             {tx.type.replace(/_/g, ' ')}
                           </td>
-                          <td className="px-4 py-3.5">
-                            <Badge
-                              size="sm"
-                              variant={
-                                tx.status === 'CONFIRMED'
-                                  ? 'success'
-                                  : tx.status === 'PENDING'
-                                    ? 'warning'
-                                    : 'danger'
-                              }
-                            >
-                              {tx.status === 'CONFIRMED'
-                                ? 'Confirmed'
-                                : tx.status === 'PENDING'
-                                  ? 'Pending'
-                                  : 'Failed'}
-                            </Badge>
+                          <td className="px-4 py-3.5 break-all font-mono text-xs text-slate-500">
+                            {tx.sender}
                           </td>
                         </tr>
                       ))}
@@ -241,7 +261,9 @@ export default function ExplorerBlockDetailPage() {
 
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <Layers aria-hidden="true" className="h-4 w-4" />
-          Demo data for illustration purposes.
+          {mode === 'DEMO'
+            ? 'Demo data for illustration purposes.'
+            : 'Live block data from the SecureX Blockchain V2 node.'}
         </div>
       </div>
     </ExplorerLayout>

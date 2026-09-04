@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpDown, IdCard, Search } from 'lucide-react';
+import { ArrowUpDown, CreditCard, Search } from 'lucide-react';
 import {
+  Alert,
   CredentialCard,
   EmptyState,
   Input,
+  ModeIndicator,
   Select,
   Spinner,
   Tabs,
 } from '@/components/ui';
 import type { TabItem } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import { getHolderCredentials } from '@/services/api/credentialService';
+import { getHolderCredentialsView } from '@/features/holder-admin/services/holderAdminService';
 import type { Credential } from '@/types';
 
-type StatusFilter = 'ALL' | 'VALID' | 'EXPIRED' | 'REVOKED';
+type StatusFilter = 'ALL' | 'VALID' | 'EXPIRED' | 'REVOKED' | 'SUSPENDED';
 
 const SORT_OPTIONS = [
   { label: 'Recently issued', value: 'recent' },
   { label: 'Expiring soon', value: 'expiry' },
-  { label: 'Title (A–Z)', value: 'title' },
+  { label: 'Title (A\u2013Z)', value: 'title' },
 ];
 
 function applyStatusFilter(credential: Credential, filter: StatusFilter): boolean {
@@ -34,17 +36,20 @@ export default function HolderCredentialsPage() {
 
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('recent');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
   const loadCredentials = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const data = await getHolderCredentials(holderId);
+      const data = await getHolderCredentialsView(holderId);
       setCredentials(data);
-    } catch {
+    } catch (e) {
       setCredentials([]);
+      setLoadError(e instanceof Error ? e.message : 'Could not load your credentials.');
     } finally {
       setLoading(false);
     }
@@ -60,6 +65,7 @@ export default function HolderCredentialsPage() {
       VALID: credentials.filter((c) => c.status === 'VALID').length,
       EXPIRED: credentials.filter((c) => c.status === 'EXPIRED').length,
       REVOKED: credentials.filter((c) => c.status === 'REVOKED').length,
+      SUSPENDED: credentials.filter((c) => c.status === 'SUSPENDED').length,
     }),
     [credentials],
   );
@@ -70,6 +76,7 @@ export default function HolderCredentialsPage() {
       { id: 'VALID', label: `Valid (${counts.VALID})` },
       { id: 'EXPIRED', label: `Expired (${counts.EXPIRED})` },
       { id: 'REVOKED', label: `Revoked (${counts.REVOKED})` },
+      { id: 'SUSPENDED', label: `Suspended (${counts.SUSPENDED})` },
     ],
     [counts],
   );
@@ -82,7 +89,8 @@ export default function HolderCredentialsPage() {
       return (
         credential.title.toLowerCase().includes(query) ||
         credential.institutionName.toLowerCase().includes(query) ||
-        credential.credentialId.toLowerCase().includes(query)
+        credential.credentialId.toLowerCase().includes(query) ||
+        credential.type.toLowerCase().includes(query)
       );
     });
 
@@ -107,16 +115,21 @@ export default function HolderCredentialsPage() {
   return (
     <div className="space-y-5">
       <section>
-        <h1 className="text-xl font-bold text-neutral-900">My Credentials</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">
-          Every credential in your wallet, ready to view, verify, and share.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-bold text-neutral-900">My Credentials</h1>
+            <p className="mt-0.5 text-sm text-neutral-500">
+              Every credential in your wallet, ready to view, verify, and share.
+            </p>
+          </div>
+          <ModeIndicator />
+        </div>
       </section>
 
       <div className="space-y-3">
         <Input
           type="search"
-          placeholder="Search by name, issuer, or ID…"
+          placeholder="Search by name, issuer, type, or ID\u2026"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
@@ -144,6 +157,12 @@ export default function HolderCredentialsPage() {
         listClassName="overflow-x-auto pb-1"
       />
 
+      {loadError && (
+        <Alert variant="error" title="Could not load credentials">
+          {loadError}
+        </Alert>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-16">
           <Spinner size="lg" color="#7c3aed" label="Loading credentials" />
@@ -152,7 +171,7 @@ export default function HolderCredentialsPage() {
         <EmptyState
           icon={
             <div className="flex h-7 w-7 items-center justify-center">
-              <IdCard className="h-6 w-6" />
+              <CreditCard className="h-6 w-6" />
             </div>
           }
           title={
@@ -162,7 +181,7 @@ export default function HolderCredentialsPage() {
           }
           description={
             search || statusFilter !== 'ALL'
-              ? 'Try adjusting your search or filters to find what you’re looking for.'
+              ? 'Try adjusting your search or filters to find what you\u2019re looking for.'
               : 'Credentials issued to you will appear here automatically.'
           }
         />

@@ -12,7 +12,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
-import { Card, Skeleton } from '@/components/ui';
+import { Badge, Card, ErrorState, Skeleton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import type { InstitutionStats } from '@/services/api/institutionService';
 import {
@@ -21,7 +21,8 @@ import {
 } from '@/services/api/institutionService';
 import { getCredentials } from '@/services/api/credentialService';
 import { formatDate } from '@/utils/format';
-import type { Institution } from '@/types';
+import { getStatusBadgeVariant, getStatusLabel } from '@/utils/status';
+import type { Institution, CredentialStatus } from '@/types';
 
 export default function InstitutionDashboardPage() {
   const { user } = useAuth();
@@ -30,12 +31,14 @@ export default function InstitutionDashboardPage() {
   const [institution, setInstitution] = useState<Institution | null>(null);
   const [stats, setStats] = useState<InstitutionStats | null>(null);
   const [recentCredentials, setRecentCredentials] = useState<
-    { title: string; holderName: string; status: string; issuedAt: string }[]
+    { title: string; holderName: string; status: CredentialStatus; issuedAt: string }[]
   >([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError(false);
 
     try {
       const [inst, st, creds] = await Promise.all([
@@ -63,7 +66,7 @@ export default function InstitutionDashboardPage() {
 
       setRecentCredentials(instCreds);
     } catch {
-      /* ignore */
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -104,20 +107,32 @@ export default function InstitutionDashboardPage() {
     ];
   }, [stats]);
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'VALID':
-        return 'bg-trust-50 text-trust-700 border-trust-100';
-      case 'REVOKED':
-        return 'bg-danger-50 text-danger-700 border-danger-100';
-      case 'SUSPENDED':
-        return 'bg-warning-50 text-warning-700 border-warning-100';
-      case 'EXPIRED':
-        return 'bg-neutral-100 text-neutral-600 border-neutral-200';
-      default:
-        return 'bg-neutral-100 text-neutral-600 border-neutral-200';
-    }
-  };
+  if (error) {
+    return (
+      <div className="min-h-full space-y-8 pb-10">
+        <section className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white px-6 py-7 shadow-sm sm:px-8">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-securex-600 to-indigo-700 text-white shadow-lg shadow-securex-600/20">
+              <Building2 className="h-7 w-7" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-neutral-950 sm:text-3xl">
+                Institution Dashboard
+              </h1>
+              <p className="mt-1 text-sm text-neutral-500">
+                Overview of your institution&apos;s credentials and activity.
+              </p>
+            </div>
+          </div>
+        </section>
+        <ErrorState
+          title="Failed to load dashboard"
+          description="There was a problem loading your dashboard data. Please try again."
+          onRetry={loadData}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-full space-y-8 pb-10">
@@ -289,14 +304,13 @@ export default function InstitutionDashboardPage() {
                   </div>
 
                   <div className="flex items-center gap-3 pl-13 sm:pl-0">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold tracking-wide ${statusColor(
-                        cred.status,
-                      )}`}
+                    <Badge
+                      variant={getStatusBadgeVariant(cred.status)}
+                      size="sm"
+                      dot
                     >
-                      <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current" />
-                      {cred.status}
-                    </span>
+                      {getStatusLabel(cred.status)}
+                    </Badge>
 
                     <span className="whitespace-nowrap text-xs text-neutral-400">
                       {formatDate(cred.issuedAt)}

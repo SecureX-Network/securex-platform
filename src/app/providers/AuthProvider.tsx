@@ -29,11 +29,41 @@ export interface AuthContextType extends AuthState {
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const VALID_ROLES: ReadonlySet<string> = new Set([
+  'PUBLIC',
+  'HOLDER',
+  'INSTITUTION',
+  'ISSUER',
+  'EMPLOYER',
+  'ADMIN',
+  'SECURITY_ADMIN',
+  'NETWORK_ADMIN',
+  'AUDITOR',
+]);
+
+function isValidStoredUser(value: unknown): value is User {
+  if (typeof value !== 'object' || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.id !== 'string' || obj.id.trim() === '') return false;
+  if (typeof obj.email !== 'string' || obj.email.trim() === '') return false;
+  if (typeof obj.role !== 'string' || !VALID_ROLES.has(obj.role)) return false;
+  return true;
+}
+
 function readStoredUser(): User | null {
   try {
     const raw = localStorage.getItem(AUTH_USER_KEY);
-    return raw ? (JSON.parse(raw) as User) : null;
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isValidStoredUser(parsed)) {
+      localStorage.removeItem(AUTH_USER_KEY);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
+    localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
     return null;
   }
 }
