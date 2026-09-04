@@ -2,6 +2,8 @@ import { IS_MOCK } from '@/constants';
 import { ApiError, fetchBlockchainAPI } from '@/services/api/client';
 import { mockDelay } from '@/services/mock';
 import type { AuditEvent, Credential, Issuer, UserRole } from '@/types';
+import { SECUREX_QR_PREFIX } from '@/utils';
+import { parseSecureXQr } from '@/utils/publicCredentialId';
 import type {
   ApiAuditEvent,
   ApiCredential,
@@ -17,6 +19,9 @@ import type {
 } from '@/features/holder-admin/types/backend';
 import {
   REAL_DEMO_CREDENTIAL_IDS,
+  REAL_DEMO_PUBLIC_CREDENTIAL_IDS,
+  demoQrTokenForPublicId,
+  publicIdForDemoQrToken,
   getCredentialIdsForHolder,
   holderOwnsCredential,
 } from './holderOwnership';
@@ -327,6 +332,7 @@ export async function getRealIssuerHistory(id: string): Promise<ApiIssuerHistory
  * given holder may see is decided by the OFF-CHAIN ownership registry.
  */
 export { REAL_DEMO_CREDENTIAL_IDS };
+export { REAL_DEMO_PUBLIC_CREDENTIAL_IDS };
 
 /** Fetch the on-chain credential set confirmed by the real backend. */
 export async function getRealCredentials(): Promise<Credential[]> {
@@ -605,20 +611,92 @@ export async function verifyRealCredential(
   return toVerificationView(result);
 }
 
+/** DEMO fixed issuedAt (stable across renders so the demo QR is reproducible). */
+const DEMO_QR_ISSUED_AT = 1780000000000;
+/** DEMO fixed 64-byte (128 hex) Ed25519-shaped signature fixture. */
+const DEMO_QR_SIGNATURE =
+  'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
+
 export async function getRealQrReference(credentialId: string): Promise<ApiQrReference> {
   if (getDataSourceMode() === 'DEMO') {
+    const publicId = resolveDemoPublicId(credentialId) ?? credentialId;
+    const token = demoQrTokenForPublicId(publicId) ?? publicId;
+    // DEMO QR content is opaque (no readable public ID): SXQR1.token.issuedAt.v1.sig
+    const qrContent = `${SECUREX_QR_PREFIX}.${token}.${DEMO_QR_ISSUED_AT}.v1.${DEMO_QR_SIGNATURE}`;
     return {
-      credentialId,
+      credentialId: publicId,
       version: '1',
-      verificationUrl: `${window.location.origin}/verify/${encodeURIComponent(credentialId)}`,
-      payload: { credentialId, version: '1' },
+      verificationUrl: `${window.location.origin}/verify/${encodeURIComponent(publicId)}`,
+      payload: { credentialId: publicId, version: '1', protocol: SECUREX_QR_PREFIX },
       exists: true,
-      qrContent: `${window.location.origin}/verify/${encodeURIComponent(credentialId)}`,
+      qrContent,
     };
   }
   return runWithRetry(() =>
     fetchBlockchainAPI<ApiQrReference>(`/qr/${encodeURIComponent(credentialId)}`),
   );
+}
+
+export interface ApiQrVerify {
+  ok: boolean;
+  publicCredentialId?: string;
+  reason?: string;
+}
+
+/**
+ * REAL mode: forward an opaque SecureX QR payload to the backend for
+ * authentication + resolution. The backend verifies the server Ed25519
+ * signature, enforces the bounded lifetime, and resolves the opaque token to a
+ * PUBLIC credential ID. On success returns the public ID (the backend response
+ * never contains internal credential IDs).
+ */
+export async function verifyQrPayloadViaApi(payload: string): Promise<ApiQrVerify> {
+  try {
+    const result = await runWithRetry(() =>
+      fetchBlockchainAPI<ApiVerifyResult>('/verify/qr', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ payload }),
+      }),
+    );
+    if (result.status === 'NOT_FOUND') {
+      return { ok: false, reason: 'Credential not found on the SecureX ledger.' };
+    }
+    return { ok: true, publicCredentialId: result.credentialId };
+  } catch (e) {
+    const message = e instanceof ApiError ? e.message : 'Could not authenticate this SecureX QR reference.';
+    return { ok: false, reason: message };
+  }
+}
+
+/** Resolve an opaque SecureX QR payload to a public credential ID for display. */
+export async function resolveSecureXQrPayload(payload: string): Promise<ApiQrVerify> {
+  const parsed = parseSecureXQr(payload);
+  if (!parsed.ok || !parsed.token) {
+    const reason =
+      parsed.reason === 'unsupported-version'
+        ? 'This SecureX QR uses an unsupported protocol version.'
+        : 'This is not a valid SecureX QR reference.';
+    return { ok: false, reason };
+  }
+  if (getDataSourceMode() === 'DEMO') {
+    const publicId = publicIdForDemoQrToken(parsed.token);
+    if (!publicId) {
+      return { ok: false, reason: 'This SecureX QR reference is not recognized.' };
+    }
+    return { ok: true, publicCredentialId: publicId };
+  }
+  return verifyQrPayloadViaApi(payload);
+}
+
+/**
+ * Map an internal demo credential ID to its public verification ID using the
+ * ordered (1:1) demo lists. Public IDs are never derived from internal IDs;
+ * this is a fixed demo fixture mapping only (no ID derivation).
+ */
+function resolveDemoPublicId(internalId: string): string | undefined {
+  const idx = REAL_DEMO_CREDENTIAL_IDS.indexOf(internalId);
+  return idx >= 0 ? REAL_DEMO_PUBLIC_CREDENTIAL_IDS[idx] : undefined;
 }
 
 // ---------------------------------------------------------------------------

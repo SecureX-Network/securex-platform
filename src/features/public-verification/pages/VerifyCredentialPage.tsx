@@ -8,15 +8,37 @@ import {
   Search,
   Share2,
 } from 'lucide-react';
-import { Button, Card, Input, Spinner } from '@/components/ui';
+import { Button, Card, Input, Spinner, ErrorState } from '@/components/ui';
 import { RealVerificationResult } from '@/features/public-verification/components/RealVerificationResult';
 import { ROUTES } from '@/constants';
+import { ApiError } from '@/services/api/client';
 import { verifyRealCredential } from '@/features/holder-admin/services/holderAdminService';
 import type { VerificationView } from '@/features/holder-admin/services/holderAdminService';
+import { normalizeCredentialInput } from '@/utils/publicCredentialId';
+
+/**
+ * Map a verification failure to a safe, user-facing message that never leaks
+ * internal URLs, stack traces, or server implementation details.
+ *
+ * Network/timeout failures surface as ApiError with status 0 (see client.ts);
+ * these mean the verification service could not be reached and warrant a clear
+ * "temporarily unavailable" message with a retry. Any other failure is shown as
+ * a generic, non-technical message.
+ */
+function friendlyVerificationError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 0) {
+    return 'The verification service is temporarily unavailable. Please check your connection and try again.';
+  }
+  return 'Could not complete verification at this time. Please try again.';
+}
 
 export default function VerifyCredentialPage() {
   const { credentialId } = useParams<{ credentialId: string }>();
   const [searchParams] = useSearchParams();
+  // Public credential IDs (SX-...) are case-insensitive on input; normalize so
+  // the backend resolves them on the public verification path. Internal-style
+  // IDs are only trimmed (never altered).
+  const normalizedId = normalizeCredentialInput(credentialId ?? '');
   const initialHash = searchParams.get('hash') ?? undefined;
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<VerificationView | null>(null);
@@ -27,7 +49,7 @@ export default function VerifyCredentialPage() {
 
   const verify = useCallback(
     (documentHash?: string) => {
-      if (!credentialId) {
+      if (!normalizedId) {
         setError('No credential ID provided.');
         setLoading(false);
         return;
@@ -35,45 +57,55 @@ export default function VerifyCredentialPage() {
       setLoading(true);
       setError(null);
       setResult(null);
-      verifyRealCredential(credentialId, documentHash)
+      verifyRealCredential(normalizedId, documentHash)
         .then((data) => {
           setResult(data);
           setHashChecked(Boolean(documentHash));
         })
         .catch((err: unknown) => {
-          setError(
-            err instanceof Error ? err.message : 'Verification failed. Please try again.',
-          );
+          setError(friendlyVerificationError(err));
         })
         .finally(() => setLoading(false));
     },
-    [credentialId],
+    [normalizedId],
   );
 
   useEffect(() => {
     verify(initialHash);
   }, [verify, initialHash]);
 
-  async function runHashCheck() {
-    const hash = hashInput.trim();
-    if (!credentialId || !hash) return;
+  async function runHashCheckFor(hash: string) {
+    if (!normalizedId || !hash) return;
     setHashBusy(true);
     try {
-      const data = await verifyRealCredential(credentialId, hash);
+      const data = await verifyRealCredential(normalizedId, hash);
       setResult(data);
       setHashChecked(true);
       setError(null);
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : 'The tamper check could not be completed.',
-      );
+      setError(friendlyVerificationError(err));
     } finally {
       setHashBusy(false);
     }
   }
 
+  async function runHashCheck() {
+    await runHashCheckFor(hashInput.trim());
+  }
+
+  // Re-run the current verification flow after a transient failure.
+  function retry() {
+    if (hashBusy) return;
+    const pendingHash = (initialHash ?? hashInput.trim()) || undefined;
+    if (pendingHash) {
+      void runHashCheckFor(pendingHash);
+    } else {
+      verify();
+    }
+  }
+
   async function shareResult() {
-    const shareUrl = `${window.location.origin}/verify/${encodeURIComponent(credentialId ?? '')}`;
+    const shareUrl = `${window.location.origin}/verify/${encodeURIComponent(normalizedId)}`;
     if (typeof navigator.share === 'function') {
       try {
         await navigator.share({
@@ -108,9 +140,9 @@ export default function VerifyCredentialPage() {
           <h1 className="mt-4 text-2xl font-bold text-white sm:text-3xl">
             Credential verification result
           </h1>
-          {credentialId && (
+          {normalizedId && (
             <p className="mt-2 break-all font-mono text-sm text-neutral-300">
-              {credentialId}
+              {normalizedId}
             </p>
           )}
         </div>
@@ -119,38 +151,41 @@ export default function VerifyCredentialPage() {
       <section className="mx-auto max-w-5xl px-4 py-10 pb-16 sm:px-6 lg:px-8">
         {loading ? (
           <Card padding="lg" className="shadow-securex">
-            <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+            <div
+              role="status"
+              aria-live="polite"
+              aria-label="Verifying credential"
+              className="flex flex-col items-center justify-center gap-4 py-16 text-center"
+            >
               <Spinner size="lg" label="Verifying credential…" color="#4338ca" />
               <div>
                 <p className="text-sm font-medium text-neutral-700">
                   Verifying credential
                 </p>
                 <p className="mt-1 text-xs text-neutral-500">
-                This verification result was generated by the SecureX verification service.
+                  This verification result was generated by the SecureX verification service.
                 </p>
               </div>
             </div>
           </Card>
         ) : error ? (
           <Card padding="lg" className="shadow-securex">
-            <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-danger-50 text-danger-500">
-                <Search className="h-7 w-7" />
-              </span>
-              <h2 className="text-lg font-semibold text-neutral-900">
-                Could not complete verification
-              </h2>
-              <p className="max-w-md text-sm text-neutral-500">{error}</p>
-              <div className="mt-2 flex flex-col gap-3 sm:flex-row">
-                <Button
-                  variant="outline"
-                  leftIcon={<ArrowLeft className="h-4 w-4" />}
-                  onClick={() => window.history.back()}
-                >
-                  Try another ID
-                </Button>
-                <Button href={ROUTES.VERIFY}>Verify another credential</Button>
-              </div>
+            <ErrorState
+              icon={<Search aria-hidden="true" className="h-7 w-7" />}
+              title="Could not complete verification"
+              description={error}
+              onRetry={retry}
+              retryLabel="Try again"
+            />
+            <div className="flex flex-col justify-center gap-3 px-6 pb-8 sm:flex-row sm:items-center">
+              <Button
+                variant="outline"
+                leftIcon={<ArrowLeft className="h-4 w-4" />}
+                onClick={() => window.history.back()}
+              >
+                Try another ID
+              </Button>
+              <Button href={ROUTES.VERIFY}>Verify another credential</Button>
             </div>
           </Card>
         ) : result ? (

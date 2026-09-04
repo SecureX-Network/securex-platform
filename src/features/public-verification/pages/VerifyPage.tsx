@@ -1,15 +1,15 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   CalendarClock,
   Fingerprint,
   Info,
-  Lock,
   QrCode,
-  ScanLine,
   Search,
   ShieldCheck,
+  Type,
+  ScanLine,
 } from 'lucide-react';
 import { Button, Card, EmptyState, Input, Spinner } from '@/components/ui';
 import { ROUTES } from '@/constants';
@@ -18,15 +18,25 @@ import { getVerificationHistory } from '@/services/api/verificationService';
 import type { VerificationHistory } from '@/types';
 import { StatusIndicator } from '@/components/ui/StatusIndicator';
 import { formatDate } from '@/utils';
+import { normalizeCredentialInput } from '@/utils/publicCredentialId';
+import { QRScanner } from '@/features/public-verification/components/QRScanner';
+import { resolveSecureXQrPayload } from '@/features/holder-admin/services/holderAdminService';
+import { REAL_DEMO_PUBLIC_CREDENTIAL_IDS } from '@/features/holder-admin/services/holderOwnership';
 
-const SAMPLE_IDS = [
-  'SX-2F9C-A41B-8D7E',
-  'SX-8B31-7C0D-4A6E',
-  'SX-9D61-4AC8-0F3B',
-];
+// Curated sample PUBLIC credential IDs pulled from the authoritative real-chain
+// seed (see backend scripts/demo-data.ts, surfaced via
+// REAL_DEMO_PUBLIC_CREDENTIAL_IDS). Picked to showcase a realistic mix of
+// verification outcomes. Public IDs (SX-XXXX-XXXX-XXXX) are what the verifier
+// enters — never the internal sxu-* credential IDs.
+const SAMPLE_INDEXES = [0, 2, 5, 6];
+const SAMPLE_IDS = SAMPLE_INDEXES.map(
+  (index) => REAL_DEMO_PUBLIC_CREDENTIAL_IDS[index],
+).filter((id): id is string => Boolean(id));
 
+// Manual entry uses the public-ID-aware normalizer: public IDs (sx-/SX-) are
+// upper-cased so the backend resolves them on the public verification path.
 function normalizeId(input: string): string {
-  return input.trim().toUpperCase();
+  return normalizeCredentialInput(input);
 }
 
 export default function VerifyPage() {
@@ -35,6 +45,7 @@ export default function VerifyPage() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [history, setHistory] = useState<VerificationHistory[] | null>(null);
+  const [mode, setMode] = useState<'manual' | 'scan'>('manual');
 
   const historyEnabled = isAuthenticated && user !== null;
 
@@ -64,6 +75,25 @@ export default function VerifyPage() {
     runVerification(query);
   }
 
+  const handleQrDecoded = useCallback(
+    (payload: string) => {
+      setError('Verifying SecureX QR reference…');
+      resolveSecureXQrPayload(payload)
+        .then((res) => {
+          if (!res.ok || !res.publicCredentialId) {
+            setError(res.reason ?? 'This is not a valid SecureX QR reference.');
+            return;
+          }
+          setError(undefined);
+          navigate(`/verify/${encodeURIComponent(res.publicCredentialId)}`);
+        })
+        .catch(() => {
+          setError('Could not authenticate this SecureX QR reference. Try again.');
+        });
+    },
+    [navigate],
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-blue-50/30">
       {/* Hero */}
@@ -78,111 +108,133 @@ export default function VerifyPage() {
               Verify any credential instantly
             </h1>
             <p className="mt-6 text-lg leading-relaxed text-neutral-300">
-             Enter a credential ID or use a QR code to check credential
-verification details through SecureX.
+              Enter a credential ID or scan a SecureX QR code to check verification
+              details through SecureX.
             </p>
           </div>
         </div>
       </section>
 
       <section className="relative z-10 mx-auto -mt-20 max-w-5xl px-4 pb-20 sm:px-6 lg:px-8">
-        {/* Search card */}
+        {/* Search / scanner card */}
         <Card
-  padding="lg"
-  className="rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-blue-900/20 ring-1 ring-slate-900/5"
->
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            <div>
-              <label
-                htmlFor="credential-query"
-                className="mb-1.5 block text-sm font-medium text-neutral-700"
-              >
-                Credential ID
-              </label>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Input
-                  id="credential-query"
-                  placeholder="e.g. SX-2F9C-A41B-8D7E"
-                  size="lg"
-                  leftIcon={<Search className="h-5 w-5" />}
-                  value={query}
-                  error={error}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    if (error) setError(undefined);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      runVerification(query);
-                    }
-                  }}
-                  className="flex-1"
-                />
-                <Button
-                  type="submit"
-                  size="lg"
-                  disabled={!query.trim()}
-                className="min-w-[160px] rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 font-bold shadow-xl shadow-blue-600/30 transition-all duration-200 hover:-translate-y-1 hover:from-blue-700 hover:to-indigo-700 hover:shadow-2xl hover:shadow-blue-600/40 sm:w-auto"
-                >
-                  Verify
-                </Button>
-              </div>
-            </div>
+          padding="lg"
+          className="rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-blue-900/20 ring-1 ring-slate-900/5"
+        >
+          <div className="mb-5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1">
+            <button
+              type="button"
+              onClick={() => setMode('manual')}
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                mode === 'manual'
+                  ? 'bg-white text-securex-700 shadow-sm'
+                  : 'text-neutral-500 hover:text-neutral-700'
+              }`}
+            >
+              <Type className="h-4 w-4" />
+              Enter ID
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('scan')}
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                mode === 'scan'
+                  ? 'bg-white text-securex-700 shadow-sm'
+                  : 'text-neutral-500 hover:text-neutral-700'
+              }`}
+            >
+              <ScanLine className="h-4 w-4" />
+              Scan QR
+            </button>
+          </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-500">
-              <span className="inline-flex items-center gap-1.5">
-                <Info className="h-4 w-4 text-neutral-400" />
-                Try a sample:
-              </span>
-              {SAMPLE_IDS.map((sampleId) => (
-                <button
-                  key={sampleId}
-                  type="button"
-                  onClick={() => {
-                    setQuery(sampleId);
-                    setError(undefined);
-                  }}
-                className="rounded-full border border-blue-100 bg-blue-50/60 px-3.5 py-1.5 font-mono text-xs font-medium text-blue-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-100 hover:shadow-md"
+          {mode === 'manual' ? (
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+              <div>
+                <label
+                  htmlFor="credential-query"
+                  className="mb-1.5 block text-sm font-medium text-neutral-700"
                 >
-                  {sampleId}
-                </button>
-              ))}
+                  Credential ID
+                </label>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    id="credential-query"
+                    placeholder="e.g. SX-2F9C-A41B-8D7E"
+                    size="lg"
+                    leftIcon={<Search className="h-5 w-5" />}
+                    value={query}
+                    error={error}
+                    onChange={(e) => {
+                      setQuery(e.target.value);
+                      if (error) setError(undefined);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        runVerification(query);
+                      }
+                    }}
+                    helperText="Enter the public credential ID (SX-XXXX-XXXX-XXXX) shown on the issued credential."
+                    className="flex-1"
+                  />
+                  <Button
+                    type="submit"
+                    size="lg"
+                    disabled={!query.trim()}
+                    className="min-w-[160px] rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 font-bold shadow-xl shadow-blue-600/30 transition-all duration-200 hover:-translate-y-1 hover:from-blue-700 hover:to-indigo-700 hover:shadow-2xl hover:shadow-blue-600/40 sm:w-auto"
+                  >
+                    Verify
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <Info className="h-4 w-4 text-neutral-400" />
+                  Try a sample:
+                </span>
+                {SAMPLE_IDS.map((sampleId) => (
+                  <button
+                    key={sampleId}
+                    type="button"
+                    onClick={() => {
+                      setQuery(sampleId);
+                      setError(undefined);
+                      document.getElementById('credential-query')?.focus();
+                    }}
+                    className="rounded-full border border-blue-100 bg-blue-50/60 px-3.5 py-1.5 font-mono text-xs font-medium text-blue-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-100 hover:shadow-md"
+                  >
+                    {sampleId}
+                  </button>
+                ))}
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <p className="mb-1.5 text-sm font-medium text-neutral-700">
+                  SecureX QR scanner
+                </p>
+                <p className="mb-4 max-w-2xl text-sm text-neutral-500">
+                  Point your camera at a SecureX QR code from a printed or digital
+                  credential. The scanner only accepts SecureX QR codes and never
+                  opens arbitrary links.
+                </p>
+                {error && (
+                  <p
+                    role="alert"
+                    className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                  >
+                    {error}
+                  </p>
+                )}
+              </div>
+              <QRScanner onDecoded={handleQrDecoded} />
             </div>
-          </form>
+          )}
         </Card>
 
-       {/* QR placeholder */}
-<Card
-  padding="lg"
-  className="mt-6 border border-slate-200/80 bg-white shadow-xl shadow-slate-900/5"
->
-          <h2 className="text-base font-semibold text-neutral-900">
-            Scan a QR code
-          </h2>
-          <p className="mt-1 text-sm text-neutral-500">
-            QR scanning is not available in the current version.
-          </p>
-         <div className="mt-5 flex min-h-[280px] flex-col items-center justify-center gap-5 rounded-2xl border border-dashed border-blue-200 bg-gradient-to-br from-blue-50/60 via-white to-indigo-50/60 p-10 text-center transition-all duration-300 hover:border-blue-300 hover:shadow-inner">
-  <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100 text-blue-600 shadow-inner">
-    <ScanLine className="h-9 w-9" />
-  </span>
-
-  <div>
-    <p className="text-sm font-medium text-neutral-700">
-      QR scanner coming soon
-    </p>
-    <p className="mt-1 text-xs text-neutral-500">
-      Use the credential ID to verify manually for now.
-    </p>
-  </div>
-
-  <div className="flex items-center gap-1.5 text-xs text-neutral-400">
-    <Lock className="h-3.5 w-3.5" />
-    Reading a QR code never reveals sensitive holder data.
-  </div>
-</div>
-</Card>
         {/* Recent verifications */}
         {historyEnabled ? (
           <Card
