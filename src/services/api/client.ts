@@ -87,11 +87,17 @@ async function requestJson<T>(
   options: RequestInit,
   timeoutMs = 15000,
 ): Promise<T> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  // Only inject the session token when the caller did not explicitly set an
+  // Authorization header. This lets REAL-mode privileged calls (which forward a
+  // configured backend principal token) override the UI session token instead of
+  // silently being overwritten, while keeping normal UI requests authenticated.
+  if (!headers.has('Authorization')) {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
   }
 
   const controller = new AbortController();

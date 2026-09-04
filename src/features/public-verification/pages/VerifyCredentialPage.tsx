@@ -1,51 +1,76 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ExternalLink,
+  Fingerprint,
   Printer,
   Search,
   Share2,
 } from 'lucide-react';
-import { Button, Card, Spinner } from '@/components/ui';
-import { VerificationResult } from '@/components/ui/VerificationResult';
+import { Button, Card, Input, Spinner } from '@/components/ui';
+import { RealVerificationResult } from '@/features/public-verification/components/RealVerificationResult';
 import { ROUTES } from '@/constants';
-import { verifyCredential } from '@/services/api/verificationService';
-import type { VerificationResult as VerificationResultData } from '@/types';
+import { verifyRealCredential } from '@/features/holder-admin/services/holderAdminService';
+import type { VerificationView } from '@/features/holder-admin/services/holderAdminService';
 
 export default function VerifyCredentialPage() {
   const { credentialId } = useParams<{ credentialId: string }>();
+  const [searchParams] = useSearchParams();
+  const initialHash = searchParams.get('hash') ?? undefined;
   const [loading, setLoading] = useState(true);
-  const [result, setResult] = useState<VerificationResultData | null>(null);
+  const [result, setResult] = useState<VerificationView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hashInput, setHashInput] = useState('');
+  const [hashBusy, setHashBusy] = useState(false);
+  const [hashChecked, setHashChecked] = useState(false);
 
-  useEffect(() => {
-    if (!credentialId) {
-      setError('No credential ID provided.');
-      setLoading(false);
-      return;
-    }
-    let active = true;
-    setLoading(true);
-    setError(null);
-    verifyCredential(credentialId)
-      .then((data) => {
-        if (active) setResult(data);
-      })
-      .catch((err: unknown) => {
-        if (active) {
+  const verify = useCallback(
+    (documentHash?: string) => {
+      if (!credentialId) {
+        setError('No credential ID provided.');
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      setResult(null);
+      verifyRealCredential(credentialId, documentHash)
+        .then((data) => {
+          setResult(data);
+          setHashChecked(Boolean(documentHash));
+        })
+        .catch((err: unknown) => {
           setError(
             err instanceof Error ? err.message : 'Verification failed. Please try again.',
           );
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [credentialId]);
+        })
+        .finally(() => setLoading(false));
+    },
+    [credentialId],
+  );
+
+  useEffect(() => {
+    verify(initialHash);
+  }, [verify, initialHash]);
+
+  async function runHashCheck() {
+    const hash = hashInput.trim();
+    if (!credentialId || !hash) return;
+    setHashBusy(true);
+    try {
+      const data = await verifyRealCredential(credentialId, hash);
+      setResult(data);
+      setHashChecked(true);
+      setError(null);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : 'The tamper check could not be completed.',
+      );
+    } finally {
+      setHashBusy(false);
+    }
+  }
 
   async function shareResult() {
     const shareUrl = `${window.location.origin}/verify/${encodeURIComponent(credentialId ?? '')}`;
@@ -154,7 +179,43 @@ export default function VerifyCredentialPage() {
               </div>
             </div>
 
-            <VerificationResult result={result} />
+            <RealVerificationResult result={result} />
+
+            <Card padding="lg" className="shadow-securex">
+              <div className="flex items-center gap-2">
+                <Fingerprint className="h-4 w-4 text-neutral-400" />
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
+                  Document integrity check
+                </h2>
+              </div>
+              <p className="mt-2 text-sm text-neutral-600">
+                Paste the sha256 hash of the document you received to confirm it matches
+                the version anchored on the SecureX ledger. A mismatch means the document
+                has been tampered with.
+              </p>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <Input
+                  type="text"
+                  placeholder="sha256 hash of the document (64 hex chars)"
+                  value={hashInput}
+                  onChange={(e) => {
+                    setHashInput(e.target.value);
+                    setError(null);
+                  }}
+                  className="flex-1 font-mono"
+                  aria-label="Document hash"
+                />
+                <Button
+                  variant="outline"
+                  leftIcon={<Search className="h-4 w-4" />}
+                  disabled={!hashInput.trim() || hashBusy}
+                  onClick={() => void runHashCheck()}
+                  className="sm:w-auto"
+                >
+                  {hashBusy ? 'Checking…' : hashChecked ? 'Re-check' : 'Check integrity'}
+                </Button>
+              </div>
+            </Card>
 
             <div className="mt-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <div className="flex items-center gap-2 text-xs text-neutral-400">

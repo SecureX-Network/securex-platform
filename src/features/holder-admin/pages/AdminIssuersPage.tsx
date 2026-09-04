@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KeyRound, RefreshCw, Search, ShieldBan, Users } from 'lucide-react';
 import {
+  Alert,
   Badge,
   Button,
   Dialog,
@@ -12,7 +13,12 @@ import {
   Skeleton,
 } from '@/components/ui';
 import type { Column } from '@/components/ui';
-import { getRealIssuers } from '@/features/holder-admin/services/holderAdminService';
+import {
+  activateRealIssuer,
+  getDataSourceMode,
+  getRealIssuers,
+  suspendRealIssuer,
+} from '@/features/holder-admin/services/holderAdminService';
 import { issuerStatusBadgeVariant } from '@/constants/badges';
 import type { Issuer } from '@/types';
 import { formatDate, truncateHash } from '@/utils';
@@ -25,15 +31,20 @@ export default function AdminIssuersPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [actionTarget, setActionTarget] = useState<Issuer | null>(null);
   const [actionType, setActionType] = useState<'suspend' | 'restore' | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const loadIssuers = useCallback(() => {
+    setLoading(true);
+    getRealIssuers()
+      .then((data) => setIssuers(data))
+      .catch(() => setIssuers([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    getRealIssuers()
-      .then((data) => active && setIssuers(data))
-      .catch(() => active && setIssuers([]))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, []);
+    loadIssuers();
+  }, [loadIssuers]);
 
   const institutionOptions = useMemo(() => {
     const institutions = Array.from(
@@ -92,21 +103,45 @@ export default function AdminIssuersPage() {
   );
 
   const handleAction = (issuer: Issuer, type: 'suspend' | 'restore') => {
+    setActionError(null);
     setActionTarget(issuer);
     setActionType(type);
   };
 
-  const confirmAction = () => {
+  const confirmAction = async () => {
     if (!actionTarget || !actionType) return;
-    setIssuers((prev) =>
-      prev.map((i) =>
-        i.id === actionTarget.id
-          ? { ...i, status: actionType === 'suspend' ? 'SUSPENDED' as const : 'ACTIVE' as const }
-          : i,
-      ),
-    );
-    setActionTarget(null);
-    setActionType(null);
+    const target = actionTarget;
+    const type = actionType;
+    setActionBusy(true);
+    setActionError(null);
+
+    try {
+      if (getDataSourceMode() === 'DEMO') {
+        // Demo/Mock preserves the Phase 1 behavior (local state only).
+        setIssuers((prev) =>
+          prev.map((i) =>
+            i.id === target.id
+              ? { ...i, status: type === 'suspend' ? 'SUSPENDED' as const : 'ACTIVE' as const }
+              : i,
+          ),
+        );
+      } else {
+        // REAL mode: persist the lifecycle change on the backend; the page
+        // reflects the authoritative backend state after the transition.
+        if (type === 'suspend') {
+          await suspendRealIssuer(target.id, 'admin action');
+        } else {
+          await activateRealIssuer(target.id, 'admin action');
+        }
+        await loadIssuers();
+      }
+      setActionTarget(null);
+      setActionType(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'The issuer lifecycle change failed.');
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const columns: Column<Issuer>[] = useMemo(
@@ -260,15 +295,23 @@ export default function AdminIssuersPage() {
         title="Suspend Issuer?"
         message={
           <>
-            This will suspend <strong>{actionTarget?.name}</strong> and prevent them from
-            issuing new credentials. Existing credentials remain valid until individually
-            revoked.
+            <p>
+              This will suspend <strong>{actionTarget?.name}</strong> and prevent them from
+              issuing new credentials. Existing credentials remain valid until individually
+              revoked.
+            </p>
+            {actionError && (
+              <Alert variant="error" title="Suspension failed" className="mt-3">
+                {actionError}
+              </Alert>
+            )}
           </>
         }
         variant="danger"
         confirmLabel="Suspend Issuer"
+        confirmLoading={actionBusy}
         onConfirm={confirmAction}
-        onCancel={() => { setActionTarget(null); setActionType(null); }}
+        onCancel={() => { setActionError(null); setActionTarget(null); setActionType(null); }}
       />
 
       <Dialog
@@ -276,14 +319,22 @@ export default function AdminIssuersPage() {
         title="Restore Issuer?"
         message={
           <>
-            This will restore <strong>{actionTarget?.name}</strong> to active status,
-            allowing them to issue credentials again.
+            <p>
+              This will restore <strong>{actionTarget?.name}</strong> to active status,
+              allowing them to issue credentials again.
+            </p>
+            {actionError && (
+              <Alert variant="error" title="Restore failed" className="mt-3">
+                {actionError}
+              </Alert>
+            )}
           </>
         }
         variant="info"
         confirmLabel="Restore Issuer"
+        confirmLoading={actionBusy}
         onConfirm={confirmAction}
-        onCancel={() => { setActionTarget(null); setActionType(null); }}
+        onCancel={() => { setActionError(null); setActionTarget(null); setActionType(null); }}
       />
     </div>
   );

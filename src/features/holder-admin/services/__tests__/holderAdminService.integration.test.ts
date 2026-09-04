@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/services/api/client';
+import {
+  getCredentialIdsForHolder,
+  resetOwnershipRegistry,
+} from '../holderOwnership';
 import type {
   ApiAuditEvent,
   ApiCredential,
@@ -272,5 +276,133 @@ describe('holderAdminService real backend integration', () => {
       name: 'ApiError',
       status: 0,
     });
+  });
+});
+
+describe('holder access control (off-chain ownership registry)', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('rejects access to a credential the holder does not own with an honest 403', async () => {
+    const svc = await loadRealService();
+    resetOwnershipRegistry();
+    // usr-holder-003 owns only the sxpa-* demo credentials per the seed, so
+    // sxu-btech-2026-0001 is NOT theirs -> the service must refuse up front.
+    await expect(
+      svc.getRealCredential('sxu-btech-2026-0001', 'usr-holder-003'),
+    ).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 403,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('allows access when the holder owns the credential', async () => {
+    const svc = await loadRealService();
+    resetOwnershipRegistry();
+    // usr-holder-001 owns the first three demo credentials (incl. btech 0001).
+    fetchMock
+      .mockResolvedValueOnce(fakeApi(sampleCredential))
+      .mockResolvedValueOnce(fakeApi(sampleIssuer));
+
+    const credential = await svc.getRealCredential('sxu-btech-2026-0001', 'usr-holder-001');
+    expect(credential.credentialId).toBe('sxu-btech-2026-0001');
+  });
+
+  it('shows only the credentials the holder owns in their wallet view', async () => {
+    const svc = await loadRealService();
+    resetOwnershipRegistry();
+    // usr-holder-001 owns sxu-btech/mtech/mba-2026-0001 (3 credentials).
+    fetchMock.mockResolvedValueOnce(fakeApi([sampleIssuer]));
+    const owned = getCredentialIdsForHolder('usr-holder-001');
+    for (const id of owned) {
+      fetchMock.mockResolvedValueOnce(fakeApi({ ...sampleCredential, credentialId: id }));
+    }
+
+    const view = await svc.getHolderCredentialsView('usr-holder-001');
+    expect(view.map((c) => c.credentialId).sort()).toEqual([...owned].sort());
+    // All three owned credentials are returned and never another holder's set.
+    expect(view).toHaveLength(3);
+  });
+
+  it('returns an empty wallet (no backend probe) for a holder with no owned credentials', async () => {
+    const svc = await loadRealService();
+    const map: Record<string, string[]> = { 'empty-holder': [] };
+    localStorage.setItem('securex_holder_ownership_v1', JSON.stringify(map));
+    try {
+      const view = await svc.getHolderCredentialsView('empty-holder');
+      expect(view).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      localStorage.removeItem('securex_holder_ownership_v1');
+    }
+  });
+});
+
+describe('issuer lifecycle + privileged auth (Target 2 + Target 10)', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    localStorage.removeItem('securex_holder_ownership_v1');
+  });
+
+  it('suspends and activates an issuer against the real endpoints', async () => {
+    const svc = await loadRealService();
+    fetchMock.mockResolvedValueOnce(fakeApi(receipt));
+    const suspended = await svc.suspendRealIssuer('issuer-1', 'policy review');
+    expect(suspended.submitted).toBe(true);
+    expect(fetchMock.mock.calls[0]![0]).toContain('/issuers/issuer-1/suspend');
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ reason: 'policy review' });
+
+    fetchMock.mockResolvedValueOnce(fakeApi(receipt));
+    const activated = await svc.activateRealIssuer('issuer-1', 'restore');
+    expect(activated.submitted).toBe(true);
+    expect(fetchMock.mock.calls[1]![0]).toContain('/issuers/issuer-1/activate');
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toEqual({ reason: 'restore' });
+  });
+
+  it('throws a 400 when the backend rejects the issuer lifecycle change', async () => {
+    const svc = await loadRealService();
+    fetchMock.mockResolvedValueOnce(
+      fakeApi({ submitted: false, id: 'x', type: 'ISSUER_SUSPEND', sender: 's', nonce: 1, status: 'PENDING' }),
+    );
+    await expect(svc.suspendRealIssuer('issuer-1')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 400,
+    });
+  });
+
+  it('forwards the configured principal token and does not override it with the UI session token', async () => {
+    const svc = await loadRealService();
+    vi.stubEnv('VITE_BLOCKCHAIN_AUTH_TOKEN', 'tkn-principal');
+    try {
+      localStorage.setItem('securex_auth_token', 'tkn-session');
+      fetchMock.mockResolvedValueOnce(fakeApi(receipt));
+      await svc.suspendRealIssuer('issuer-1');
+
+      const headers = new Headers(fetchMock.mock.calls[0]![1].headers);
+      expect(headers.get('Authorization')).toBe('Bearer tkn-principal');
+    } finally {
+      vi.unstubAllEnvs();
+      localStorage.removeItem('securex_auth_token');
+    }
+  });
+
+  it('produces authorization via the configured principal token even when it equals the session token shape', async () => {
+    const svc = await loadRealService();
+    vi.stubEnv('VITE_BLOCKCHAIN_AUTH_TOKEN', 'admin:secret');
+    try {
+      localStorage.setItem('securex_auth_token', 'some-other-session');
+      fetchMock.mockResolvedValueOnce(fakeApi(receipt));
+      await svc.activateRealIssuer('issuer-1');
+
+      const headers = new Headers(fetchMock.mock.calls[0]![1].headers);
+      expect(headers.get('Authorization')).toBe('Bearer admin:secret');
+    } finally {
+      vi.unstubAllEnvs();
+      localStorage.removeItem('securex_auth_token');
+    }
   });
 });

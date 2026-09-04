@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpDown, CreditCard, Search } from 'lucide-react';
 import {
+  Alert,
   CredentialCard,
   EmptyState,
   Input,
@@ -35,17 +36,20 @@ export default function HolderCredentialsPage() {
 
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('recent');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
   const loadCredentials = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await getHolderCredentialsView(holderId);
       setCredentials(data);
-    } catch {
+    } catch (e) {
       setCredentials([]);
+      setLoadError(e instanceof Error ? e.message : 'Could not load your credentials.');
     } finally {
       setLoading(false);
     }
@@ -152,6 +156,12 @@ export default function HolderCredentialsPage() {
         variant="pills"
         listClassName="overflow-x-auto pb-1"
       />
+
+      {loadError && (
+        <Alert variant="error" title="Could not load credentials">
+          {loadError}
+        </Alert>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16">

@@ -28,6 +28,7 @@ import {
 import { getRealCredential, getRealCredentialHistory } from '@/features/holder-admin/services/holderAdminService';
 import type { ApiCredentialHistoryEntry } from '@/features/holder-admin/types/backend';
 import type { Credential } from '@/types';
+import { useAuth } from '@/hooks/useAuth';
 import { formatDate, truncateHash } from '@/utils';
 
 const statusTone: Record<
@@ -144,21 +145,29 @@ function DetailRow({
 
 export default function HolderCredentialDetailPage() {
   const { credentialId = '' } = useParams<{ credentialId: string }>();
+  const { user } = useAuth();
+  const holderId = user?.id ?? 'usr-holder-001';
   const [credential, setCredential] = useState<Credential | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [realHistory, setRealHistory] = useState<ApiCredentialHistoryEntry[]>([]);
+  const [accessError, setAccessError] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setRealHistory([]);
-    getRealCredential(credentialId)
+    setAccessError(null);
+    getRealCredential(credentialId, holderId)
       .then((data) => {
         if (active) setCredential(data);
       })
-      .catch(() => {
-        if (active) setCredential(null);
+      .catch((e) => {
+        if (!active) return;
+        setCredential(null);
+        if (typeof e === 'object' && e !== null && 'status' in e) {
+          setAccessError((e as { status?: number }).status ?? null);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -169,7 +178,7 @@ export default function HolderCredentialDetailPage() {
     return () => {
       active = false;
     };
-  }, [credentialId]);
+  }, [credentialId, holderId]);
 
   if (loading) {
     return (
@@ -180,6 +189,22 @@ export default function HolderCredentialDetailPage() {
   }
 
   if (!credential) {
+    if (accessError === 403) {
+      return (
+        <div className="space-y-4">
+          <Link
+            to="/holder/credentials"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to credentials
+          </Link>
+          <ErrorState
+            title="Access denied"
+            description="This credential is not in your wallet. You can only view credentials issued to you."
+          />
+        </div>
+      );
+    }
     return (
       <div className="space-y-4">
         <Link

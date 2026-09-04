@@ -15,6 +15,11 @@ import type {
   ApiVerificationStatus,
   ApiVerifyResult,
 } from '@/features/holder-admin/types/backend';
+import {
+  REAL_DEMO_CREDENTIAL_IDS,
+  getCredentialIdsForHolder,
+  holderOwnsCredential,
+} from './holderOwnership';
 
 export type DataSourceMode = 'REAL' | 'DEMO';
 
@@ -231,6 +236,52 @@ export async function updateRealIssuer(
 }
 
 /**
+ * Admin issuer lifecycle backed by the real chain: suspends/activates an
+ * issuer's on-chain status (backend-endpoint POST /issuers/:id/suspend|
+ * activate). The backend independently authorizes the admin principal; the
+ * frontend merely forwards the configured principal token.
+ */
+export async function suspendRealIssuer(
+  issuerId: string,
+  reason?: string,
+): Promise<ApiMutationReceipt> {
+  const receipt = await runWithRetry(() =>
+    fetchBlockchainAPI<ApiMutationReceipt>(
+      `/issuers/${encodeURIComponent(issuerId)}/suspend`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ reason: reason ?? 'suspended by admin' }),
+      },
+    ),
+  );
+  if (!receipt.submitted) {
+    throw new ApiError('The issuer suspension was rejected by the backend.', 400);
+  }
+  return receipt;
+}
+
+export async function activateRealIssuer(
+  issuerId: string,
+  reason?: string,
+): Promise<ApiMutationReceipt> {
+  const receipt = await runWithRetry(() =>
+    fetchBlockchainAPI<ApiMutationReceipt>(
+      `/issuers/${encodeURIComponent(issuerId)}/activate`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ reason: reason ?? 'activated by admin' }),
+      },
+    ),
+  );
+  if (!receipt.submitted) {
+    throw new ApiError('The issuer activation was rejected by the backend.', 400);
+  }
+  return receipt;
+}
+
+/**
  * The backend exposes issuer state via ISSUER_REGISTER / ISSUER_UPDATE
  * transactions only. An issuer's ACTIVE/SUSPENDED/REVOKED lifecycle is governed
  * by the chain; there is no dedicated "suspend issuer" lifecycle endpoint. We
@@ -268,22 +319,14 @@ export async function getRealIssuerHistory(id: string): Promise<ApiIssuerHistory
 
 /**
  * The SecureX ledger stores credential identifiers (public credentialId) but
- * carries no holder binding, and it exposes no "list all credentials" endpoint
+ * carries no holder binding and exposes no "list all credentials" endpoint
  * (per-issuer history summaries omit the credentialId). To enumerate the
  * on-chain credential set for the holder wallet in REAL mode we probe the
- * credential IDs that the demo chain seeded (see backend scripts/demo-data.ts)
- * and keep only those the backend actually confirms as issued.
+ * public credential IDs the demo chain seeded (see backend scripts/demo-data.ts)
+ * and keep only those the backend actually confirms as issued. Which of these a
+ * given holder may see is decided by the OFF-CHAIN ownership registry.
  */
-export const REAL_DEMO_CREDENTIAL_IDS = [
-  'sxu-btech-2026-0001',
-  'sxu-mtech-2026-0001',
-  'sxu-mba-2026-0001',
-  'sxti-bca-2026-0001',
-  'sxti-mca-2026-0001',
-  'sxti-pro-cert-2026-0001',
-  'sxpa-intern-2026-0001',
-  'sxpa-pro-cert-2026-0001',
-];
+export { REAL_DEMO_CREDENTIAL_IDS };
 
 /** Fetch the on-chain credential set confirmed by the real backend. */
 export async function getRealCredentials(): Promise<Credential[]> {
@@ -310,21 +353,55 @@ export async function getRealCredentials(): Promise<Credential[]> {
 
 /**
  * The holder "My Credentials" view. In DEMO mode it preserves the Phase 1 mock
- * wallet (per-holder mock credentials). In REAL mode it shows the on-chain
- * credential set confirmed by the backend.
+ * wallet (per-holder mock credentials). In REAL mode it shows only the on-chain
+ * credentials the given holder actually owns (off-chain ownership registry),
+ * so a holder never sees another holder's credentials.
  */
 export async function getHolderCredentialsView(holderId: string): Promise<Credential[]> {
   if (getDataSourceMode() === 'DEMO') {
     const { getHolderCredentials } = await import('@/services/api/credentialService');
     return getHolderCredentials(holderId);
   }
-  return getRealCredentials();
+  const ownedIds = getCredentialIdsForHolder(holderId);
+  if (ownedIds.length === 0) return [];
+
+  const issuerName = new Map(
+    (await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/issuers')))
+      .map((i) => [i.issuerId, i.name]),
+  );
+
+  const out: Credential[] = [];
+  for (const id of ownedIds) {
+    try {
+      const cred = await fetchBlockchainAPI<ApiCredential>(
+        `/credentials/${encodeURIComponent(id)}`,
+      );
+      out.push(mapApiCredential(cred, issuerName.get(cred.issuerId)));
+    } catch {
+      // owned id not (yet) on-chain; skip it
+    }
+  }
+  return out;
 }
 
-export async function getRealCredential(id: string): Promise<Credential> {
+/**
+ * Fetch a single credential for the given holder. Enforces holder access
+ * control: a holder who does not own the credential receives an authorization
+ * rejection (they cannot view another holder's credential).
+ */
+export async function getRealCredential(
+  id: string,
+  holderId?: string,
+): Promise<Credential> {
   if (getDataSourceMode() === 'DEMO') {
     const { getCredentialById } = await import('@/services/api/credentialService');
     return getCredentialById(id);
+  }
+  if (holderId && !holderOwnsCredential(holderId, id)) {
+    throw new ApiError(
+      'You are not authorized to view this credential. It is not in your wallet.',
+      403,
+    );
   }
   const cred = await runWithRetry(() =>
     fetchBlockchainAPI<ApiCredential>(`/credentials/${encodeURIComponent(id)}`),
