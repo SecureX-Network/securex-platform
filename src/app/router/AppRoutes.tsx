@@ -65,6 +65,7 @@ const AdminSecurityAuditPage = lazy(() => import('@/features/holder-admin/pages/
 const AdminSettingsPage = lazy(() => import('@/features/holder-admin/pages/AdminSettingsPage'));
 
 const ExplorerOverviewPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerOverviewPage'));
+const FraudDashboardPage = lazy(() => import('@/features/fraud-tampering/pages/FraudDashboardPage'));
 const ExplorerBlocksPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerBlocksPage'));
 const ExplorerBlockDetailPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerBlockDetailPage'));
 const ExplorerTransactionsPage = lazy(() => import('@/features/explorer-simulation/pages/ExplorerTransactionsPage'));
@@ -209,6 +210,9 @@ export function AppRoutes() {
       <Route path="/explorer/attack-simulation" element={withSuspense(<AttackSimulationPage />)} />
       <Route path="/explorer/attack-simulation/:id" element={withSuspense(<AttackSimulationDetailPage />)} />
       <Route path="/explorer/security/evidence/:id" element={withSuspense(<SecurityEvidencePage />)} />
+
+      {/* Fraud & Tampering */}
+      <Route path="/fraud"element={withSuspense(<FraudDashboardPage />)} />
 
       {/* Misc */}
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
