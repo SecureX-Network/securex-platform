@@ -40,10 +40,11 @@ interface SessionRow {
  * JWT bearer auth. Verifies signature/expiry, then confirms the referenced
  * session row exists and has not been revoked (server-side session invalidation).
  */
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
-    return fail(res, 401, 'UNAUTHORIZED', 'Authentication required. Please sign in to continue.');
+    fail(res, 401, 'UNAUTHORIZED', 'Authentication required. Please sign in to continue.');
+    return;
   }
 
   const token = header.slice('Bearer '.length).trim();
@@ -51,17 +52,19 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     payload = jwt.verify(token, serverConfig.jwtSecret) as jwt.JwtPayload;
   } catch {
-    return fail(res, 401, 'UNAUTHORIZED', 'Your session is invalid or has expired. Please sign in again.');
+    fail(res, 401, 'UNAUTHORIZED', 'Your session is invalid or has expired. Please sign in again.');
+    return;
   }
 
   const session = payload.jti
-    ? get<SessionRow>(`SELECT user_id, revoked FROM sessions WHERE jti = ?`, payload.jti)
+    ? await get<SessionRow>(`SELECT user_id, revoked FROM sessions WHERE jti = ?`, payload.jti)
     : undefined;
   if (!session || session.revoked === 1) {
-    return fail(res, 401, 'UNAUTHORIZED', 'Your session has been revoked. Please sign in again.');
+    fail(res, 401, 'UNAUTHORIZED', 'Your session has been revoked. Please sign in again.');
+    return;
   }
 
-  const user = get<{
+  const user = await get<{
     id: string;
     email: string;
     name: string;
@@ -73,7 +76,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     'ACTIVE',
   );
   if (!user) {
-    return fail(res, 401, 'UNAUTHORIZED', 'Your account is no longer active. Please contact support.');
+    fail(res, 401, 'UNAUTHORIZED', 'Your account is no longer active. Please contact support.');
+    return;
   }
 
   (req as AuthenticatedRequest).user = {

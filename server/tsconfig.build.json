@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "../dist-server",
+    "rootDir": "./",
+    "tsBuildInfoFile": "../node_modules/.tmp/tsconfig.server.build.tsbuildinfo"
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["./test/**/*"]
+}

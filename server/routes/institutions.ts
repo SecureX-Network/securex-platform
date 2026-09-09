@@ -20,32 +20,46 @@ const institutionListSql = `
 `;
 
 institutionsRouter.get('/', (_req: Request, res: Response) => {
-  const rows = all<InstitutionRow>(`${institutionListSql} ORDER BY i.created_at DESC`);
-  return ok(res, rows.map(mapInstitutionRow));
+  void listInstitutionsHandler(res);
 });
 
+async function listInstitutionsHandler(res: Response): Promise<void> {
+  const rows = await all<InstitutionRow>(`${institutionListSql} ORDER BY i.created_at DESC`);
+  ok(res, rows.map(mapInstitutionRow));
+}
+
 institutionsRouter.get('/:id', (req: Request, res: Response) => {
-  const row = get<InstitutionRow>(`${institutionListSql} WHERE i.id = ?`, param(req, 'id'));
-  if (!row) {
-    return fail(res, 404, 'INSTITUTION_NOT_FOUND', 'Institution not found.');
-  }
-  return ok(res, mapInstitutionRow(row));
+  void getInstitutionHandler(req, res);
 });
+
+async function getInstitutionHandler(req: Request, res: Response): Promise<void> {
+  const row = await get<InstitutionRow>(`${institutionListSql} WHERE i.id = ?`, param(req, 'id'));
+  if (!row) {
+    fail(res, 404, 'INSTITUTION_NOT_FOUND', 'Institution not found.');
+    return;
+  }
+  ok(res, mapInstitutionRow(row));
+}
 
 const DAY = 86_400_000;
 
 institutionsRouter.get('/:id/stats', (req: Request, res: Response) => {
+  void institutionStatsHandler(req, res);
+});
+
+async function institutionStatsHandler(req: Request, res: Response): Promise<void> {
   const id = param(req, 'id');
-  const institution = get<{ id: string }>('SELECT id FROM institutions WHERE id = ?', id);
+  const institution = await get<{ id: string }>('SELECT id FROM institutions WHERE id = ?', id);
   if (!institution) {
-    return fail(res, 404, 'INSTITUTION_NOT_FOUND', 'Institution not found.');
+    fail(res, 404, 'INSTITUTION_NOT_FOUND', 'Institution not found.');
+    return;
   }
 
-  const credentials = all<{ status: string; issued_at: string }>(
+  const credentials = await all<{ status: string; issued_at: string }>(
     'SELECT status, issued_at FROM credentials WHERE institution_id = ?',
     id,
   );
-  const issuers = all<{ status: string; created_at: string }>(
+  const issuers = await all<{ status: string; created_at: string }>(
     'SELECT status, created_at FROM issuers WHERE institution_id = ?',
     id,
   );
@@ -55,7 +69,7 @@ institutionsRouter.get('/:id/stats', (req: Request, res: Response) => {
     (c) => new Date(c.issued_at).getTime() > monthAgo,
   ).length;
 
-  return ok(res, {
+  ok(res, {
     totalCredentials: credentials.length,
     activeCredentials: credentials.filter((c) => c.status === 'VALID').length,
     revokedCredentials: credentials.filter((c) => c.status === 'REVOKED').length,
@@ -83,23 +97,31 @@ institutionsRouter.get('/:id/stats', (req: Request, res: Response) => {
       },
     ],
   });
-});
+}
 
 institutionsRouter.get('/:id/issuers', (req: Request, res: Response) => {
-  const rows = all<IssuerRow>(
+  void institutionIssuersHandler(req, res);
+});
+
+async function institutionIssuersHandler(req: Request, res: Response): Promise<void> {
+  const rows = await all<IssuerRow>(
     `SELECT k.id, k.name, k.institution_id, k.email, k.public_key, k.status, k.credentials_issued, k.created_at,
             i.name AS institution_name
      FROM issuers k JOIN institutions i ON i.id = k.institution_id
      WHERE k.institution_id = ? ORDER BY k.created_at DESC`,
     param(req, 'id'),
   );
-  return ok(res, rows.map(mapIssuerRow));
-});
+  ok(res, rows.map(mapIssuerRow));
+}
 
 institutionsRouter.get('/:id/audit-logs', (req: Request, res: Response) => {
-  const rows = all<AuditRow>(
+  void institutionAuditLogsHandler(req, res);
+});
+
+async function institutionAuditLogsHandler(req: Request, res: Response): Promise<void> {
+  const rows = await all<AuditRow>(
     `SELECT * FROM audit_events WHERE details LIKE ? ORDER BY timestamp DESC`,
     `%${param(req, 'id')}%`,
   );
-  return ok(res, rows.map(mapAuditRow));
-});
+  ok(res, rows.map(mapAuditRow));
+}

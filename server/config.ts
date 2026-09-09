@@ -1,8 +1,3 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 function env(key: string, fallback: string = ''): string {
   const v = process.env[key];
   return v !== undefined && v !== '' ? v : fallback;
@@ -73,12 +68,31 @@ if (isProduction && dataMode === 'demo') {
   }
 }
 
+// ── PostgreSQL connection ─────────────────────────────────────────
+// The real DATABASE_URL is mandatory in production (fail closed). In the test
+// environment TEST_DATABASE_URL wins so the integration suite can never touch
+// the development/production database by accident.
+const DEV_DATABASE_URL = 'postgres://localhost:5432/securex';
+const TEST_DATABASE_URL_DEFAULT = 'postgres://localhost:5432/securex_test';
+
+const rawDatabaseUrl = env('DATABASE_URL', '');
+if (isProduction && !rawDatabaseUrl) {
+  throw new Error(
+    '[config] FATAL: DATABASE_URL is required in production. Refusing to start without a PostgreSQL connection.',
+  );
+}
+
+const resolvedDatabaseUrl =
+  rawDatabaseUrl ||
+  env('TEST_DATABASE_URL', ENV === 'test' ? TEST_DATABASE_URL_DEFAULT : DEV_DATABASE_URL);
+
 export const serverConfig = {
   environment: ENV as Environment,
   isProduction,
   port: Number(env('PORT', '4000')),
   host: env('HOST', 'localhost'),
-  dbPath: env('DB_PATH', path.resolve(__dirname, '../../server-data/securex.db')),
+  databaseUrl: resolvedDatabaseUrl,
+  databasePoolMax: Number(env('DATABASE_POOL_MAX', '10')),
   dataMode,
   jwtSecret: requiredSecret('JWT_SECRET', DEV_JWT_FALLBACK, 32, DEV_JWT_FALLBACK),
   tokenTtl: env('JWT_TTL', '8h'),

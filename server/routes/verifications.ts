@@ -41,7 +41,7 @@ function riskForStatus(status: string): RiskProfile {
   }
 }
 
-function credentialByPublicId(credentialId: string): CredentialRow | undefined {
+async function credentialByPublicId(credentialId: string): Promise<CredentialRow | undefined> {
   return get<CredentialRow>(
     `SELECT c.id, c.credential_id, c.type, c.title, c.description, c.holder_name, c.holder_id,
             c.issuer_id, c.institution_id, c.status, c.issued_at, c.expires_at, c.revoked_at,
@@ -56,8 +56,8 @@ function credentialByPublicId(credentialId: string): CredentialRow | undefined {
   );
 }
 
-function recordVerification(credentialId: string, credentialTitle: string, result: string, method: string): void {
-  run(
+async function recordVerification(credentialId: string, credentialTitle: string, result: string, method: string): Promise<void> {
+  await run(
     `INSERT INTO verification_history (id, credential_id, credential_title, verified_at, verified_by, result, method, ip_address)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     `vh-${Date.now().toString(36)}-${randomToken(6)}`,
@@ -75,12 +75,12 @@ function isValidSha256Hex(hash: string): boolean {
   return /^[\da-f]{64}$/i.test(hash);
 }
 
-function buildVerification(credentialId: string, documentHash?: string) {
-  const row = credentialByPublicId(credentialId);
+async function buildVerification(credentialId: string, documentHash?: string) {
+  const row = await credentialByPublicId(credentialId);
   const verifiedAt = new Date().toISOString();
 
   if (!row) {
-    recordVerification(credentialId, 'Unknown', 'NOT_FOUND', 'API');
+    await recordVerification(credentialId, 'Unknown', 'NOT_FOUND', 'API');
     return {
       credentialId,
       status: 'NOT_FOUND',
@@ -97,14 +97,14 @@ function buildVerification(credentialId: string, documentHash?: string) {
     };
   }
 
-  const blocks = all<{ height: number; timestamp: string }>(
+  const blocks = await all<{ height: number; timestamp: string }>(
     'SELECT height, timestamp FROM blocks ORDER BY height ASC',
   );
   const block = blocks[row.credential_id.length % blocks.length] ?? blocks[0];
   const isValid = row.status === 'VALID';
   const risk = riskForStatus(row.status);
 
-  recordVerification(row.credential_id, row.title, row.status, 'API');
+  await recordVerification(row.credential_id, row.title, row.status, 'API');
 
   const signatureVerification = {
     valid: row.status !== 'TAMPERED' && row.status !== 'NOT_FOUND',
@@ -165,33 +165,49 @@ function buildVerification(credentialId: string, documentHash?: string) {
 }
 
 verificationsRouter.get('/', (req: Request, res: Response) => {
+  void verifyHandler(req, res);
+});
+
+async function verifyHandler(req: Request, res: Response): Promise<void> {
   const credentialId = typeof req.query.credentialId === 'string' ? req.query.credentialId : '';
   if (!credentialId) {
-    return fail(res, 400, 'MISSING_CREDENTIAL_ID', 'Missing required field: credentialId');
+    fail(res, 400, 'MISSING_CREDENTIAL_ID', 'Missing required field: credentialId');
+    return;
   }
   const documentHash = typeof req.query.hash === 'string' ? req.query.hash : undefined;
   if (documentHash && !isValidSha256Hex(documentHash)) {
-    return fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');
+    fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');
+    return;
   }
-  return ok(res, buildVerification(credentialId, documentHash));
-});
+  ok(res, await buildVerification(credentialId, documentHash));
+}
 
 verificationsRouter.get('/history', (req: Request, res: Response) => {
-  void req.query.employerId;
-  const rows = all<VerificationHistoryRow>(
-    'SELECT * FROM verification_history ORDER BY verified_at DESC',
-  );
-  return ok(res, rows.map(mapVerificationHistoryRow));
+  void historyHandler(req, res);
 });
 
+async function historyHandler(req: Request, res: Response): Promise<void> {
+  void req.query.employerId;
+  const rows = await all<VerificationHistoryRow>(
+    'SELECT * FROM verification_history ORDER BY verified_at DESC',
+  );
+  ok(res, rows.map(mapVerificationHistoryRow));
+}
+
 verificationsRouter.get('/search', (req: Request, res: Response) => {
+  void searchHandler(req, res);
+});
+
+async function searchHandler(req: Request, res: Response): Promise<void> {
   const credentialId = typeof req.query.credentialId === 'string' ? req.query.credentialId : '';
   if (!credentialId) {
-    return fail(res, 400, 'MISSING_CREDENTIAL_ID', 'Missing required field: credentialId');
+    fail(res, 400, 'MISSING_CREDENTIAL_ID', 'Missing required field: credentialId');
+    return;
   }
   const documentHash = typeof req.query.hash === 'string' ? req.query.hash : undefined;
   if (documentHash && !isValidSha256Hex(documentHash)) {
-    return fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');
+    fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');
+    return;
   }
-  return ok(res, buildVerification(credentialId, documentHash));
-});
+  ok(res, await buildVerification(credentialId, documentHash));
+}

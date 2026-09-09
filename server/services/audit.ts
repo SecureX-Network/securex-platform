@@ -17,9 +17,9 @@ export interface AuditEntry {
  * Append an audit event. Intentionally never rejects: auditing must never take
  * a business request down with it (same contract as the Control Center server).
  */
-export function writeAudit(entry: AuditEntry): void {
+export async function writeAudit(entry: AuditEntry): Promise<void> {
   try {
-    run(
+    await run(
       `INSERT INTO audit_events (id, action, actor, actor_role, target, target_type, details, ip_address, timestamp)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       `aud-${Date.now().toString(36)}-${randomToken(6)}`,
@@ -41,11 +41,11 @@ export function writeAudit(entry: AuditEntry): void {
 }
 
 /** Convenience for requests where the caller is an authenticated user. */
-export function auditFor(
+export async function auditFor(
   req: { user: AuthUser; ip?: string },
   entry: Omit<AuditEntry, 'actor' | 'actorRole' | 'ipAddress'>,
-): void {
-  writeAudit({
+): Promise<void> {
+  await writeAudit({
     ...entry,
     actor: req.user.name,
     actorRole: req.user.role,

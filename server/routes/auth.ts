@@ -12,14 +12,14 @@ import { writeAudit } from '../services/audit.js';
 
 const SELF_REGISTER_ROLES: UserRole[] = ['HOLDER', 'INSTITUTION', 'ISSUER', 'EMPLOYER'];
 
-function signSession(user: UserRow, ipAddress: string): { token: string; jti: string } {
+async function signSession(user: UserRow, ipAddress: string): Promise<{ token: string; jti: string }> {
   const jti = newJti();
   const token = jwt.sign(
     { sub: user.id, role: user.role, jti, authMethod: 'pwd' },
     serverConfig.jwtSecret,
     { expiresIn: serverConfig.tokenTtl } as jwt.SignOptions,
   );
-  run(
+  await run(
     `INSERT INTO sessions (jti, user_id, issued_at, expires_at, revoked, ip_address, device, location)
      VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
     jti,
@@ -33,7 +33,7 @@ function signSession(user: UserRow, ipAddress: string): { token: string; jti: st
   return { token, jti };
 }
 
-function findActiveUser(email: string): UserRow | undefined {
+async function findActiveUser(email: string): Promise<UserRow | undefined> {
   return get<UserRow>(
     `SELECT id, email, name, role, institution_id, password_hash, created_at, last_login_at
      FROM users WHERE lower(email) = lower(?) AND status = 'ACTIVE'`,
@@ -51,44 +51,50 @@ authRouter.post(
     { name: 'role', required: false, enum: ALL_ROLES as readonly string[] },
   ]),
   (req: Request, res: Response) => {
-    const { email, password, role } = req.body as { email: string; password: string; role?: UserRole };
-    const user = findActiveUser(email);
-    const ip = req.ip ?? '';
-
-    const passwordMatches = user ? bcrypt.compareSync(password, user.password_hash) : false;
-    if (!user || !passwordMatches) {
-      writeAudit({
-        action: 'USER_LOGIN_FAILED',
-        actor: email,
-        actorRole: 'PUBLIC',
-        target: email,
-        targetType: 'user',
-        details: 'invalid credentials',
-        ipAddress: ip,
-      });
-      return fail(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
-    }
-
-    if (role && role !== user.role) {
-      return fail(res, 403, 'ROLE_MISMATCH', 'This account is not associated with the selected account type.');
-    }
-
-    const { token } = signSession(user, ip);
-    run('UPDATE users SET last_login_at = ? WHERE id = ?', new Date().toISOString(), user.id);
-
-    writeAudit({
-      action: 'USER_LOGIN',
-      actor: user.name,
-      actorRole: user.role,
-      target: user.id,
-      targetType: 'user',
-      details: 'device=Web Platform API',
-      ipAddress: ip,
-    });
-
-    return ok(res, { user: mapUserRow(user), token });
+    void loginHandler(req, res);
   },
 );
+
+async function loginHandler(req: Request, res: Response): Promise<void> {
+  const { email, password, role } = req.body as { email: string; password: string; role?: UserRole };
+  const user = await findActiveUser(email);
+  const ip = req.ip ?? '';
+
+  const passwordMatches = user ? bcrypt.compareSync(password, user.password_hash) : false;
+  if (!user || !passwordMatches) {
+    await writeAudit({
+      action: 'USER_LOGIN_FAILED',
+      actor: email,
+      actorRole: 'PUBLIC',
+      target: email,
+      targetType: 'user',
+      details: 'invalid credentials',
+      ipAddress: ip,
+    });
+    fail(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
+    return;
+  }
+
+  if (role && role !== user.role) {
+    fail(res, 403, 'ROLE_MISMATCH', 'This account is not associated with the selected account type.');
+    return;
+  }
+
+  const { token } = await signSession(user, ip);
+  await run('UPDATE users SET last_login_at = ? WHERE id = ?', new Date().toISOString(), user.id);
+
+  await writeAudit({
+    action: 'USER_LOGIN',
+    actor: user.name,
+    actorRole: user.role,
+    target: user.id,
+    targetType: 'user',
+    details: 'device=Web Platform API',
+    ipAddress: ip,
+  });
+
+  ok(res, { user: mapUserRow(user), token });
+}
 
 authRouter.post(
   '/register',
@@ -99,74 +105,84 @@ authRouter.post(
     { name: 'role', required: true, enum: SELF_REGISTER_ROLES as readonly string[] },
   ]),
   (req: Request, res: Response) => {
-    const body = req.body as { name: string; email: string; password: string; role: UserRole; institutionName?: string; companyName?: string };
-    const ip = req.ip ?? '';
-    const email = body.email.trim().toLowerCase();
-
-    const existing = get<{ id: string }>('SELECT id FROM users WHERE lower(email) = lower(?)', email);
-    if (existing) {
-      return fail(res, 409, 'EMAIL_TAKEN', 'An account with this email address already exists.');
-    }
-
-    const id = `usr-${Date.now().toString(36)}-${randomToken(6)}`;
-    run(
-      `INSERT INTO users (id, email, name, role, institution_id, password_hash, status, mfa_enabled, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0, ?)`,
-      id,
-      email,
-      body.name.trim(),
-      body.role,
-      body.role === 'INSTITUTION' ? `inst-${randomToken(8)}` : null,
-      bcrypt.hashSync(body.password, 10),
-      new Date().toISOString(),
-    );
-
-    const user = get<UserRow>(
-      `SELECT id, email, name, role, institution_id, password_hash, created_at, last_login_at FROM users WHERE id = ?`,
-      id,
-    ) as UserRow;
-
-    writeAudit({
-      action: 'USER_REGISTERED',
-      actor: user.name,
-      actorRole: user.role,
-      target: user.id,
-      targetType: 'user',
-      details: 'self-service registration',
-      ipAddress: ip,
-    });
-
-    // Balance with the frontend contract: register resolves to an authenticated
-    // session so the AuthProvider can persist the user immediately.
-    const { token } = signSession(user, ip);
-    return created(res, { user: mapUserRow(user), token });
+    void registerHandler(req, res);
   },
 );
+
+async function registerHandler(req: Request, res: Response): Promise<void> {
+  const body = req.body as { name: string; email: string; password: string; role: UserRole; institutionName?: string; companyName?: string };
+  const ip = req.ip ?? '';
+  const email = body.email.trim().toLowerCase();
+
+  const existing = await get<{ id: string }>('SELECT id FROM users WHERE lower(email) = lower(?)', email);
+  if (existing) {
+    fail(res, 409, 'EMAIL_TAKEN', 'An account with this email address already exists.');
+    return;
+  }
+
+  const id = `usr-${Date.now().toString(36)}-${randomToken(6)}`;
+  await run(
+    `INSERT INTO users (id, email, name, role, institution_id, password_hash, status, mfa_enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0, ?)`,
+    id,
+    email,
+    body.name.trim(),
+    body.role,
+    body.role === 'INSTITUTION' ? `inst-${randomToken(8)}` : null,
+    bcrypt.hashSync(body.password, 10),
+    new Date().toISOString(),
+  );
+
+  const user = await get<UserRow>(
+    `SELECT id, email, name, role, institution_id, password_hash, created_at, last_login_at FROM users WHERE id = ?`,
+    id,
+  ) as UserRow;
+
+  await writeAudit({
+    action: 'USER_REGISTERED',
+    actor: user.name,
+    actorRole: user.role,
+    target: user.id,
+    targetType: 'user',
+    details: 'self-service registration',
+    ipAddress: ip,
+  });
+
+  // Balance with the frontend contract: register resolves to an authenticated
+  // session so the AuthProvider can persist the user immediately.
+  const { token } = await signSession(user, ip);
+  created(res, { user: mapUserRow(user), token });
+}
 
 authRouter.post(
   '/forgot-password',
   validate([{ name: 'email', required: true, type: 'email' }]),
   (req: Request, res: Response) => {
-    const { email } = req.body as { email: string };
-    const user = get<{ id: string; name: string }>(
-      'SELECT id, name FROM users WHERE lower(email) = lower(?)',
-      email.trim().toLowerCase(),
-    );
-    if (!user) {
-      return fail(res, 404, 'NO_ACCOUNT', 'No account found for this email address.');
-    }
-    writeAudit({
-      action: 'PASSWORD_RESET_REQUESTED',
-      actor: user.name,
-      actorRole: 'PUBLIC',
-      target: user.id,
-      targetType: 'user',
-      details: 'password reset email dispatched',
-      ipAddress: req.ip ?? '',
-    });
-    return ok(res, { message: 'If the account exists, a reset link has been sent.' });
+    void forgotPasswordHandler(req, res);
   },
 );
+
+async function forgotPasswordHandler(req: Request, res: Response): Promise<void> {
+  const { email } = req.body as { email: string };
+  const user = await get<{ id: string; name: string }>(
+    'SELECT id, name FROM users WHERE lower(email) = lower(?)',
+    email.trim().toLowerCase(),
+  );
+  if (!user) {
+    fail(res, 404, 'NO_ACCOUNT', 'No account found for this email address.');
+    return;
+  }
+  await writeAudit({
+    action: 'PASSWORD_RESET_REQUESTED',
+    actor: user.name,
+    actorRole: 'PUBLIC',
+    target: user.id,
+    targetType: 'user',
+    details: 'password reset email dispatched',
+    ipAddress: req.ip ?? '',
+  });
+  ok(res, { message: 'If the account exists, a reset link has been sent.' });
+}
 
 authRouter.post(
   '/mfa/verify',
@@ -181,13 +197,18 @@ authRouter.post(
 );
 
 authRouter.get('/me', requireAuth, (req: Request, res: Response) => {
+  void meHandler(req, res);
+});
+
+async function meHandler(req: Request, res: Response): Promise<void> {
   const auth = req as AuthenticatedRequest;
-  const user = get<UserRow>(
+  const user = await get<UserRow>(
     `SELECT id, email, name, role, institution_id, password_hash, created_at, last_login_at FROM users WHERE id = ?`,
     auth.user.id,
   );
   if (!user) {
-    return fail(res, 401, 'UNAUTHORIZED', 'Your account no longer exists.');
+    fail(res, 401, 'UNAUTHORIZED', 'Your account no longer exists.');
+    return;
   }
-  return ok(res, mapUserRow(user));
-});
+  ok(res, mapUserRow(user));
+}

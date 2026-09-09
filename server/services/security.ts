@@ -9,8 +9,8 @@ function todayIso(): string {
 }
 
 /** Mirror of the frontend computeSecurityScore formula (severity-weighted). */
-function computeSecurityScore(): number {
-  const rows = all<{ count: number; severity: string; status: string }>(
+async function computeSecurityScore(): Promise<number> {
+  const rows = await all<{ count: number; severity: string; status: string }>(
     `SELECT COUNT(*) AS count, severity, status FROM security_alerts GROUP BY severity, status`,
   );
   const statuses = new Map<string, string[]>();
@@ -30,8 +30,8 @@ function computeSecurityScore(): number {
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
 
-export function getSecurityOverview() {
-  const alerts = all<{ severity: string; status: string }>(
+export async function getSecurityOverview() {
+  const alerts = await all<{ severity: string; status: string }>(
     'SELECT severity, status FROM security_alerts',
   );
   const active = alerts.filter((a) => ACTIVE_ALERT_STATUS.includes(a.status)).length;
@@ -45,19 +45,19 @@ export function getSecurityOverview() {
   const dayMs = 86_400_000;
   const since = new Date(Date.now() - dayMs).toISOString();
 
-  const suspiciousEvents24h = get<{ n: number }>(
+  const suspiciousEvents24h = (await get<{ n: number }>(
     'SELECT COUNT(*) AS n FROM risk_assessments WHERE assessed_at >= ?',
     since,
-  )?.n ?? 0;
-  const credentialsMonitored = get<{ n: number }>(
+  ))?.n ?? 0;
+  const credentialsMonitored = (await get<{ n: number }>(
     'SELECT COUNT(*) AS n FROM credentials',
-  )?.n ?? 0;
-  const verificationsToday = get<{ n: number }>(
+  ))?.n ?? 0;
+  const verificationsToday = (await get<{ n: number }>(
     'SELECT COUNT(*) AS n FROM verification_history WHERE verified_at >= ?',
     since,
-  )?.n ?? 0;
+  ))?.n ?? 0;
 
-  const score = computeSecurityScore();
+  const score = await computeSecurityScore();
   return {
     securityScore: score,
     overallStatus: score >= 80 ? 'STRONG' : score >= 60 ? 'MODERATE' : 'NEEDS_ATTENTION' as const,
@@ -71,8 +71,8 @@ export function getSecurityOverview() {
   };
 }
 
-export function getCredentialIntegrityStats() {
-  const counts = all<{ status: string; n: number }>(
+export async function getCredentialIntegrityStats() {
+  const counts = await all<{ status: string; n: number }>(
     'SELECT status, COUNT(*) AS n FROM credentials GROUP BY status',
   );
   const byStatus = new Map(counts.map((r) => [r.status, Number(r.n)]));
@@ -88,9 +88,9 @@ export function getCredentialIntegrityStats() {
   };
 }
 
-export function getActiveSessions() {
+export async function getActiveSessions() {
   const now = new Date().toISOString();
-  const rows = all<{
+  const rows = await all<{
     jti: string;
     name: string;
     role: string;
@@ -119,14 +119,14 @@ export function getActiveSessions() {
   }));
 }
 
-export function updateAlertStatus(
+export async function updateAlertStatus(
   alertId: string,
   status: 'NEW' | 'ACKNOWLEDGED' | 'INVESTIGATING' | 'RESOLVED' | 'DISMISSED',
-): boolean {
-  const existing = get<{ id: string }>('SELECT id FROM security_alerts WHERE id = ?', alertId);
+): Promise<boolean> {
+  const existing = await get<{ id: string }>('SELECT id FROM security_alerts WHERE id = ?', alertId);
   if (!existing) return false;
   const resolved = status === 'RESOLVED' || status === 'DISMISSED';
-  run(
+  await run(
     `UPDATE security_alerts SET status = ?, resolved_at = ? WHERE id = ?`,
     status,
     resolved ? nowIso() : null,

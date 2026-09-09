@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { getDb, run, transaction, get } from './database.js';
+import { all, get, run, transaction } from './database.js';
 import { makeHex } from '../utils/ids.js';
 import { logger } from '../services/logger.js';
 
@@ -11,7 +11,8 @@ import { logger } from '../services/logger.js';
  * are computed from boot time exactly like the mock layer does, and the demo
  * password hash is computed once and shared (identical plaintext).
  *
- * Seeding runs only on a fresh database (no schema_meta.seeded row).
+ * Seeding runs only on a fresh database (no schema_meta.seeded row), so it
+ * never overwrites existing rows on re-deploys.
  */
 
 const DAY = 86_400_000;
@@ -24,8 +25,8 @@ function futureIso(daysFromNow: number): string {
   return new Date(Date.now() + daysFromNow * DAY).toISOString();
 }
 
-export function seedIfEmpty(): void {
-  const existing = get<{ n: number }>('SELECT COUNT(*) AS n FROM users');
+export async function seedIfEmpty(): Promise<void> {
+  const existing = await get<{ n: number }>('SELECT COUNT(*) AS n FROM users');
   if (existing && existing.n > 0) {
     return;
   }
@@ -35,7 +36,7 @@ export function seedIfEmpty(): void {
   let seededUserCount = 0;
   let seededCredentialCount = 0;
 
-  transaction(() => {
+  await transaction(async () => {
     // ── Users (incl. hashed demo password) ────────────────────────────
     const users: Array<[string, string, string, string, string | null, string, string]> = [
       ['usr-admin-001', 'admin@securex.io', 'Alex Morgan', 'ADMIN', null, iso(540), iso(0, 2)],
@@ -57,7 +58,7 @@ export function seedIfEmpty(): void {
     let i = 0;
     for (const u of users) {
       i += 1;
-      run(
+      await run(
         `INSERT INTO users (id, email, name, role, institution_id, password_hash, status, mfa_enabled, created_at, last_login_at)
          VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
         u[0], u[1], u[2], u[3], u[4], demoPasswordHash, i <= 4 ? 1 : 0, u[5], u[6],
@@ -79,7 +80,7 @@ export function seedIfEmpty(): void {
       ['inst-gca', 'Global Certification Alliance', 'Certification Body', 'https://www.gcacert.org', 0, 'SUSPENDED', iso(200)],
     ];
     for (const inst of institutions) {
-      run(
+      await run(
         `INSERT INTO institutions (id, name, type, website, verified, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         inst[0], inst[1], inst[2], inst[3], inst[4], inst[5], inst[6],
       );
@@ -102,7 +103,7 @@ export function seedIfEmpty(): void {
       ['iss-gca', 'GCA Verification Office', 'inst-gca', 'verify@gcacert.org', 113, 'SUSPENDED', 214, iso(195)],
     ];
     for (const iss of issuers) {
-      run(
+      await run(
         `INSERT INTO issuers (id, name, institution_id, email, public_key, status, credentials_issued, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         iss[0], iss[1], iss[2], iss[3], makeHex(iss[4] as number), iss[5], iss[6], iss[7],
@@ -161,7 +162,7 @@ export function seedIfEmpty(): void {
       const revokedFor = c[16];
       const revokedAt = revokedFor === 'REVOKED' ? iso(200) : null;
       const revokedReason = revokedFor === 'REVOKED' ? 'Assessment results invalidated following a compliance audit.' : null;
-      run(
+      await run(
         `INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id, issuer_id, institution_id,
            status, issued_at, expires_at, revoked_at, revoked_reason, tx_hash, merkle_root, digital_signature, template_id, metadata_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -177,7 +178,7 @@ export function seedIfEmpty(): void {
     const genesisTime = Date.now() - 132 * 60_000;
     for (let height = 1; height <= 22; height++) {
       const hash = makeHex(7000 + height * 13);
-      run(
+      await run(
         `INSERT INTO blocks (height, hash, previous_hash, merkle_root, timestamp, validator, transaction_count, size)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         height, hash, previousHash, makeHex(8000 + height * 17),
@@ -190,14 +191,14 @@ export function seedIfEmpty(): void {
     }
 
     // ── Transactions (mirrors the mock generator, 34 txs) ──────────────
-    const creds = getDb().prepare('SELECT id, credential_id FROM credentials').all() as Array<{ id: string; credential_id: string }>;
+    const creds = await all<{ id: string; credential_id: string }>('SELECT id, credential_id FROM credentials');
     const txTypes = ['CREDENTIAL_ISSUED', 'CREDENTIAL_VERIFIED', 'CREDENTIAL_REVOKED', 'CREDENTIAL_SUSPENDED', 'INSTITUTION_REGISTERED', 'ISSUER_ADDED', 'BLOCK_CREATED'];
     const froms = Array.from({ length: 6 }, (_, i) => `0x${makeHex(9101 + i, 40)}`);
     const start = Date.now() - 34 * 5.4 * 60_000;
     for (let ti = 0; ti < 34; ti++) {
       const type = txTypes[ti % 7] as string;
       const cred = creds[ti % creds.length];
-      run(
+      await run(
         `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         `0x${makeHex(50_000 + ti * 31)}`,
@@ -221,7 +222,7 @@ export function seedIfEmpty(): void {
       ['risk-004', 'SX-4B8F-C1D6-29A3', 'MEDIUM', 38, ['Credential has exceeded validity period'], 'VALIDITY_SCAN', iso(2, 1)],
     ];
     for (const r of riskAssessments) {
-      run(
+      await run(
         `INSERT INTO risk_assessments (id, credential_id, risk_level, score, flags_json, method, assessed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         r[0], r[1], r[2], r[3], JSON.stringify(r[4]), r[5], r[6],
       );
@@ -237,7 +238,7 @@ export function seedIfEmpty(): void {
       ['vh-006', 'SX-9C4E-2D80-5A31', 'Bachelor of Science in Nursing', iso(4, 6), 'Riverbend Health HR', 'VALID', 'QR_CODE', '10.5.70.3'],
     ];
     for (const h of history) {
-      run(
+      await run(
         `INSERT INTO verification_history (id, credential_id, credential_title, verified_at, verified_by, result, method, ip_address)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
@@ -254,7 +255,7 @@ export function seedIfEmpty(): void {
       ['alrt-006', 'SYSTEM_ANOMALY', 'LOW', 'Validator heartbeat latency spike', 'Validator node 04 reported an above-threshold block propagation latency. Auto-rebalancing engaged.', 'validator-04', 'RESOLVED', iso(2, 4), iso(1, 6)],
     ];
     for (const a of alerts) {
-      run(
+      await run(
         `INSERT INTO security_alerts (id, type, severity, title, description, source, status, created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
       );
@@ -273,7 +274,7 @@ export function seedIfEmpty(): void {
       ['aud-009', 'CREDENTIAL_ISSUED', 'Certification Office', 'INSTITUTION', 'cred-005', 'credential', 'institution=inst-ancc; credential=SX-3A17-B9F2-6D48; renewal issuance', '10.0.1.90', iso(650, 2)],
     ];
     for (const e of auditEvents) {
-      run(
+      await run(
         `INSERT INTO audit_events (id, action, actor, actor_role, target, target_type, details, ip_address, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7], e[8],
       );
@@ -286,13 +287,13 @@ export function seedIfEmpty(): void {
       ['sess-003', 'usr-network-001', iso(1), '10.0.8.33', 'Linux Firefox 130', 'Austin, TX'],
     ];
     for (const s of demoSessionData) {
-      run(
+      await run(
         `INSERT INTO sessions (jti, user_id, issued_at, expires_at, revoked, ip_address, device, location) VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
         s[0], s[1], s[2], futureIso(1), s[3], s[4], s[5],
       );
     }
 
-    run("INSERT INTO schema_meta (key, value) VALUES ('seeded', ?)", new Date().toISOString());
+    await run("INSERT INTO schema_meta (key, value) VALUES ('seeded', ?)", new Date().toISOString());
   });
 
   logger.info('db.seeded', { users: seededUserCount, credentials: seededCredentialCount });

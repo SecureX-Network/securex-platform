@@ -22,11 +22,13 @@ SecureX is a decentralized platform for issuing, managing, verifying, and sharin
 - [React Router v6](https://reactrouter.com/)
 - [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/)
 - [Lucide React](https://lucide.dev/) (icons)
+- Backend: [Express 5](https://expressjs.com/) + [node-postgres](https://node-postgres.com/) with a [PostgreSQL](https://www.postgresql.org/) database
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 20+ (Node 22.5+ only to run the optional SQLite → PostgreSQL import utility)
 - npm 9+
+- PostgreSQL 14+ (local dev; Render Managed PostgreSQL in production)
 
 ## Installation
 
@@ -44,18 +46,63 @@ npm run dev
 
 Opens at [http://localhost:3000](http://localhost:3000)
 
+### 1. Start PostgreSQL
+
+The Platform API persists to PostgreSQL (Render Managed PostgreSQL in
+production). Locally, any PostgreSQL 14+ listening on TCP works. On macOS with
+Homebrew:
+
+```bash
+brew install postgresql@17           # if not already installed
+brew services start postgresql@17
+createdb securex                      # development database
+createdb securex_test                 # integration-test database (dedicated)
+```
+
+### 2. Run the API
+
+```bash
+npm run server        # tsx dev runner on http://localhost:4000
+```
+
+On a fresh database the server applies the schema and seeds the canonical demo
+domain data automatically (`SEED_ON_BOOT=true`), then never reseeds. The
+default connection strings are:
+
+- Development: `postgres://localhost:5432/securex`
+- Tests: `postgres://localhost:5432/securex_test` (overridable via
+  `TEST_DATABASE_URL` or `DATABASE_URL`)
+
+Override with the same `DATABASE_URL` / backend variables documented below.
+
+### 3. Tests (backend needs the test database)
+
+```bash
+npm run test:server   # Express API integration tests against securex_test
+npm run test:all      # lint + typecheck + unit + server tests + builds
+```
+
+The test suite refuses to run against any database whose name does not contain
+`test`, so it can never wipe development or production data.
+
 ## Available Scripts
 
 | Script | Description |
 | --- | --- |
-| `npm run dev` | Start development server |
+| `npm run dev` | Start development server (Vite, port 3000) |
 | `npm run build` | Production build (TypeScript + Vite) |
+| `npm run build:server` | Compile the API server to `dist-server/` |
+| `npm start` | Run the compiled API server (`node dist-server/index.js`) |
+| `npm run server` | Run the API server via tsx (development) |
 | `npm run preview` | Preview production build locally |
-| `npm run test` | Run tests once |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run test:coverage` | Run tests with coverage report |
+| `npm run test` | Run unit tests once |
+| `npm run test:watch` | Run unit tests in watch mode |
+| `npm run test:coverage` | Run unit tests with coverage report |
+| `npm run test:server` | Run Express API integration tests (PostgreSQL) |
+| `npm run test:all` | Lint + typecheck + all tests + builds |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | TypeScript type checking |
+| `npm run import:sqlite` | Migrate an existing SQLite database into PostgreSQL |
 
 ## Environment Variables
 
@@ -65,12 +112,85 @@ Copy `.env.example` to `.env` and configure as needed:
 cp .env.example .env
 ```
 
+Frontend variables (prefix `VITE_`, inlined at build time by Vite — never put
+secrets in these):
+
 | Variable | Default | Description |
 | --- | --- | --- |
-| `VITE_API_URL` | `http://localhost:8080/api/v1` | Main API endpoint |
-| `VITE_BLOCKCHAIN_API_URL` | `http://localhost:8081/api/v1` | Blockchain API endpoint |
-| `VITE_FRAUD_ENGINE_URL` | `http://localhost:8082/api/v1` | Fraud detection API endpoint |
-| `VITE_IS_MOCK` | `true` | Enable mock data (set `false` when backend is connected) |
+| `VITE_API_BASE_URL` | `http://localhost:4000/api` | Platform API endpoint |
+| `VITE_BLOCKCHAIN_API_URL` | `http://localhost:3001` | SecureX Blockchain endpoint |
+| `VITE_FRAUD_ENGINE_URL` | `http://localhost:4002/fraud` | Fraud engine endpoint |
+| `VITE_USE_MOCK` | `true` | `true` = demo/mock mode, `false` = real services |
+
+Backend variables (read from the process environment at server runtime):
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `APP_ENV` | `development` | `production` enables fail-closed rules |
+| `PORT` | `4000` | HTTP port |
+| `HOST` | `localhost` | Bind host (`0.0.0.0` on Render) |
+| `DATABASE_URL` | `postgres://localhost:5432/securex` | PostgreSQL connection (required in production) |
+| `DATABASE_POOL_MAX` | `10` | Connection pool size |
+| `TEST_DATABASE_URL` | `postgres://localhost:5432/securex_test` | Integration-test database |
+| `DATA_MODE` | `demo` | `real` or `demo`; `demo` is forbidden in production |
+| `JWT_SECRET` | dev fallback | JWT signing secret (required in production) |
+| `CORS_ORIGINS` | `http://localhost:3000` | Exact allowed browser origins, comma-separated |
+| `SEED_ON_BOOT` | `true` | Seed canonical demo data on a **fresh** database only |
+| `BLOCKCHAIN_API_URL` | `http://localhost:3001` | Blockchain service health probe target |
+| `FRAUD_ENGINE_URL` | `http://localhost:4002/fraud` | Fraud engine health probe target |
+
+## PostgreSQL Deployment (Render)
+
+The repository ships a [Render Blueprint](render.yaml): a managed PostgreSQL
+database plus a Node Web Service for the API, which also provisions the custom
+domain `api-securex.sp-net.in`.
+
+```bash
+render blueprint launch
+```
+
+Required production environment (also validated by `render.yaml`):
+
+| Variable | Value |
+| --- | --- |
+| `APP_ENV` | `production` |
+| `DATA_MODE` | `real` |
+| `DATABASE_URL` | Inject from the Render database (`property: connectionString`) |
+| `JWT_SECRET` | Generate once in the dashboard (Render persists it) |
+| `CORS_ORIGINS` | `https://app-securex.sp-net.in` (the Vercel frontend) |
+| `HOST` | `0.0.0.0` (Render sets `PORT`) |
+| `SEED_ON_BOOT` | `true` (seed happens only on the very first fresh database) |
+| `BLOCKCHAIN_API_URL` | Deployed Blockchain service URL |
+| `FRAUD_ENGINE_URL` | Deployed Fraud Engine service URL |
+
+Production behavior (fail closed):
+
+- Startup refuses if `DATABASE_URL`, `JWT_SECRET`, or `CORS_ORIGINS` are
+  unset, if `JWT_SECRET` is the dev fallback, if `CORS_ORIGINS` contains `*`,
+  or if `DATA_MODE` is `demo`.
+- CORS is an exact allowlist; requests from other origins get no
+  `Access-Control-Allow-Origin` header and are rejected by browsers.
+- Seeding is idempotent and insert-only: the schema tracks a
+  `schema_meta.seeded` marker and never overwrites existing rows on redeploys.
+- Public demo verification IDs are preserved exactly
+  (`SX-2F9C-A41B-8D7E`, `SX-7A31-C0E4-19F6`, `SX-4B8D-6A2F-C701`,
+  `SX-9C4E-2D80-5A31`, `SX-3A17-B9F2-6D48`, `SX-8E50-1C73-A9B4`,
+  `SX-6D29-B8E5-0F4C`, `SX-5A40-9F61-D2B7`).
+
+## Migrating From SQLite
+
+Previous instances of the Platform API persisted to `node:sqlite` files. The
+API now runs on PostgreSQL, and a one-shot importer copies an existing SQLite
+database into PostgreSQL while preserving row identities, timestamps, and
+public credential IDs:
+
+```bash
+DATABASE_URL=postgres://user:pass@host:5432/securex \
+  npm run import:sqlite -- ./path/to/securex.db
+```
+
+The importer refuses to run over a target that already has users unless
+`--force` is passed (use only against a known-empty database).
 
 ## Project Structure
 

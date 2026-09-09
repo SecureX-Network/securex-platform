@@ -21,7 +21,7 @@ const credentialSelect = `
   JOIN institutions i ON i.id = c.institution_id
 `;
 
-function findByPublicOrInternal(id: string): CredentialRow | undefined {
+async function findByPublicOrInternal(id: string): Promise<CredentialRow | undefined> {
   return get<CredentialRow>(
     `${credentialSelect} WHERE c.id = ? OR c.credential_id = ?`,
     id,
@@ -30,23 +30,32 @@ function findByPublicOrInternal(id: string): CredentialRow | undefined {
 }
 
 credentialsRouter.get('/', requireAuth, (req: Request, res: Response) => {
+  void listCredentialsHandler(req, res);
+});
+
+async function listCredentialsHandler(req: Request, res: Response): Promise<void> {
   const holderId = typeof req.query.holderId === 'string' ? req.query.holderId : undefined;
   const rows = holderId
-    ? all<CredentialRow>(
+    ? await all<CredentialRow>(
         `${credentialSelect} WHERE c.holder_id = ? ORDER BY c.issued_at DESC`,
         holderId,
       )
-    : all<CredentialRow>(`${credentialSelect} ORDER BY c.issued_at DESC`);
-  return ok(res, rows.map(mapCredentialRow));
-});
+    : await all<CredentialRow>(`${credentialSelect} ORDER BY c.issued_at DESC`);
+  ok(res, rows.map(mapCredentialRow));
+}
 
 credentialsRouter.get('/:id', requireAuth, (req: Request, res: Response) => {
-  const row = findByPublicOrInternal(param(req, 'id'));
-  if (!row) {
-    return fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
-  }
-  return ok(res, mapCredentialRow(row));
+  void getCredentialHandler(req, res);
 });
+
+async function getCredentialHandler(req: Request, res: Response): Promise<void> {
+  const row = await findByPublicOrInternal(param(req, 'id'));
+  if (!row) {
+    fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
+    return;
+  }
+  ok(res, mapCredentialRow(row));
+}
 
 credentialsRouter.post(
   '/',
@@ -67,113 +76,128 @@ credentialsRouter.post(
     { name: 'metadata', type: 'object' },
   ]),
   (req: Request, res: Response) => {
-    const auth = req as AuthenticatedRequest;
-    const body = req.body as {
-      type: string;
-      title: string;
-      description: string;
-      holderName: string;
-      holderId: string;
-      issuerId: string;
-      issuerName: string;
-      institutionId: string;
-      institutionName: string;
-      templateId?: string;
-      expiresAt?: string;
-      metadata?: Record<string, string>;
-    };
-
-    const issuer = get<{ id: string }>('SELECT id FROM issuers WHERE id = ?', body.issuerId);
-    const institution = get<{ id: string }>('SELECT id FROM institutions WHERE id = ?', body.institutionId);
-    if (!issuer) return fail(res, 400, 'UNKNOWN_ISSUER', 'Issuer not found.');
-    if (!institution) return fail(res, 400, 'UNKNOWN_INSTITUTION', 'Institution not found.');
-
-    const id = `cred-${Date.now().toString(36)}-${randomToken(6)}`;
-    const credentialId = newPublicCredentialId(Date.now() % 9000);
-    const issuedAt = nowIso();
-    run(
-      `INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id,
-         issuer_id, institution_id, status, issued_at, expires_at, tx_hash, merkle_root, digital_signature, template_id, metadata_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      credentialId,
-      body.type,
-      body.title,
-      body.description,
-      body.holderName,
-      body.holderId,
-      body.issuerId,
-      body.institutionId,
-      issuedAt,
-      body.expiresAt ?? null,
-      `0x${makeHex(Date.now() % 100000)}`,
-      makeHex((Date.now() % 100000) + 1000),
-      makeHex((Date.now() % 100000) + 2000),
-      body.templateId ?? null,
-      body.metadata ? JSON.stringify(body.metadata) : null,
-    );
-
-    const top = get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks');
-    const height = (top?.max ?? 0) + 1;
-    run(
-      `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
-       VALUES (?, ?, 'CREDENTIAL_ISSUED', ?, ?, ?, ?, 'PENDING', ?, 0)`,
-      `0x${makeHex(70_000 + (Date.now() % 90_000))}`,
-      height,
-      issuedAt,
-      `0x${makeHex(80_000, 40)}`,
-      `0x${makeHex(90_000, 40)}`,
-      credentialId,
-      21_000,
-    );
-
-    auditFor(auth, {
-      action: 'CREDENTIAL_ISSUED',
-      target: id,
-      targetType: 'credential',
-      details: `institution=${body.institutionName}; credential=${credentialId}; via web issue flow`,
-    });
-
-    const row = get<CredentialRow>(`${credentialSelect} WHERE c.id = ?`, id);
-    return created(res, row ? mapCredentialRow(row) : undefined);
+    void createCredentialHandler(req, res);
   },
 );
+
+async function createCredentialHandler(req: Request, res: Response): Promise<void> {
+  const auth = req as AuthenticatedRequest;
+  const body = req.body as {
+    type: string;
+    title: string;
+    description: string;
+    holderName: string;
+    holderId: string;
+    issuerId: string;
+    issuerName: string;
+    institutionId: string;
+    institutionName: string;
+    templateId?: string;
+    expiresAt?: string;
+    metadata?: Record<string, string>;
+  };
+
+  const issuer = await get<{ id: string }>('SELECT id FROM issuers WHERE id = ?', body.issuerId);
+  const institution = await get<{ id: string }>('SELECT id FROM institutions WHERE id = ?', body.institutionId);
+  if (!issuer) {
+    fail(res, 400, 'UNKNOWN_ISSUER', 'Issuer not found.');
+    return;
+  }
+  if (!institution) {
+    fail(res, 400, 'UNKNOWN_INSTITUTION', 'Institution not found.');
+    return;
+  }
+
+  const id = `cred-${Date.now().toString(36)}-${randomToken(6)}`;
+  const credentialId = newPublicCredentialId(Date.now() % 9000);
+  const issuedAt = nowIso();
+  await run(
+    `INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id,
+       issuer_id, institution_id, status, issued_at, expires_at, tx_hash, merkle_root, digital_signature, template_id, metadata_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    credentialId,
+    body.type,
+    body.title,
+    body.description,
+    body.holderName,
+    body.holderId,
+    body.issuerId,
+    body.institutionId,
+    issuedAt,
+    body.expiresAt ?? null,
+    `0x${makeHex(Date.now() % 100000)}`,
+    makeHex((Date.now() % 100000) + 1000),
+    makeHex((Date.now() % 100000) + 2000),
+    body.templateId ?? null,
+    body.metadata ? JSON.stringify(body.metadata) : null,
+  );
+
+  const top = await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks');
+  const height = (top?.max ?? 0) + 1;
+  await run(
+    `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
+     VALUES (?, ?, 'CREDENTIAL_ISSUED', ?, ?, ?, ?, 'PENDING', ?, 0)`,
+    `0x${makeHex(70_000 + (Date.now() % 90_000))}`,
+    height,
+    issuedAt,
+    `0x${makeHex(80_000, 40)}`,
+    `0x${makeHex(90_000, 40)}`,
+    credentialId,
+    21_000,
+  );
+
+  await auditFor(auth, {
+    action: 'CREDENTIAL_ISSUED',
+    target: id,
+    targetType: 'credential',
+    details: `institution=${body.institutionName}; credential=${credentialId}; via web issue flow`,
+  });
+
+  const row = await get<CredentialRow>(`${credentialSelect} WHERE c.id = ?`, id);
+  created(res, row ? mapCredentialRow(row) : undefined);
+}
 
 credentialsRouter.post(
   '/:id/revoke',
   requireAuth,
   requireRole(...CREDENTIAL_WRITER_ROLES),
   (req: Request, res: Response) => {
-    const auth = req as AuthenticatedRequest;
-    const row = findByPublicOrInternal(param(req, 'id'));
-    if (!row) {
-      return fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
-    }
-    const revokedAt = nowIso();
-    run(
-      `UPDATE credentials SET status = 'REVOKED', revoked_at = ?, revoked_reason = ? WHERE id = ?`,
-      revokedAt,
-      'Revoked by issuer',
-      row.id,
-    );
-    const maxHeight = get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks')?.max ?? 0;
-    run(
-      `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
-       VALUES (?, ?, 'CREDENTIAL_REVOKED', ?, ?, ?, ?, 'CONFIRMED', ?, 24)`,
-      `0x${makeHex(100_000 + (Date.now() % 90_000))}`,
-      maxHeight,
-      revokedAt,
-      `0x${makeHex(110_000, 40)}`,
-      `0x${makeHex(120_000, 40)}`,
-      row.credential_id,
-      21_000,
-    );
-    auditFor(auth, {
-      action: 'CREDENTIAL_REVOKED',
-      target: row.id,
-      targetType: 'credential',
-      details: `institution=${row.institution_name}; credential=${row.credential_id}; reason=${row.revoked_reason}`,
-    });
-    return ok(res, { message: 'Credential revoked.' });
+    void revokeCredentialHandler(req, res);
   },
 );
+
+async function revokeCredentialHandler(req: Request, res: Response): Promise<void> {
+  const auth = req as AuthenticatedRequest;
+  const row = await findByPublicOrInternal(param(req, 'id'));
+  if (!row) {
+    fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
+    return;
+  }
+  const revokedAt = nowIso();
+  await run(
+    `UPDATE credentials SET status = 'REVOKED', revoked_at = ?, revoked_reason = ? WHERE id = ?`,
+    revokedAt,
+    'Revoked by issuer',
+    row.id,
+  );
+  const maxHeight = (await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks'))?.max ?? 0;
+  await run(
+    `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
+     VALUES (?, ?, 'CREDENTIAL_REVOKED', ?, ?, ?, ?, 'CONFIRMED', ?, 24)`,
+    `0x${makeHex(100_000 + (Date.now() % 90_000))}`,
+    maxHeight,
+    revokedAt,
+    `0x${makeHex(110_000, 40)}`,
+    `0x${makeHex(120_000, 40)}`,
+    row.credential_id,
+    21_000,
+  );
+  await auditFor(auth, {
+    action: 'CREDENTIAL_REVOKED',
+    target: row.id,
+    targetType: 'credential',
+    details: `institution=${row.institution_name}; credential=${row.credential_id}; reason=${row.revoked_reason}`,
+  });
+  ok(res, { message: 'Credential revoked.' });
+}

@@ -1,6 +1,12 @@
--- SecureX Platform API — SQLite schema
+-- SecureX Platform API — PostgreSQL schema
 -- Timestamps are stored as ISO-8601 UTC text so API rows match the frontend
--- (JSON) domain types exactly and render without transformation.
+-- (JSON) domain types exactly and render without transformation, identical to
+-- the SQLite schema the Platform API previously ran on. JSON-shaped columns
+-- (metadata_json, flags_json) stay TEXT because the service layer parses them
+-- with JSON.parse; switching to JSONB would change the wire contract.
+--
+-- All statements are idempotent (CREATE ... IF NOT EXISTS) and are executed
+-- in a single multi-statement query by applySchema().
 
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,

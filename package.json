@@ -7,16 +7,19 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:server": "rm -rf dist-server && tsc -p server/tsconfig.build.json && cp server/db/schema.sql dist-server/db/schema.sql",
+    "start": "node dist-server/index.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:server": "tsx --test --test-force-exit --test-reporter=spec server/test/*.test.ts",
-    "test:all": "npm run lint && npm run typecheck && npm test && npm run test:server && npm run build",
+    "test:all": "npm run lint && npm run typecheck && npm test && npm run test:server && npm run build && npm run build:server",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 5",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
     "server": "tsx server/index.ts",
-    "server:watch": "tsx watch server/index.ts"
+    "server:watch": "tsx watch server/index.ts",
+    "import:sqlite": "tsx server/scripts/import-sqlite.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -24,6 +27,7 @@
     "jsonwebtoken": "^9.0.2",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.460.0",
+    "pg": "^8.23.0",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -36,6 +40,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/supertest": "^6.0.2",

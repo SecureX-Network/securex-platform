@@ -1,31 +1,58 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { Client } from 'pg';
 import request from 'supertest';
 import type { Express } from 'express';
 
 process.env.APP_ENV = 'test';
-process.env.DB_PATH = path.join(mkdtempSync(path.join(tmpdir(), 'securex-api-test-')), 'test.db');
 process.env.SEED_ON_BOOT = 'true';
 process.env.DATA_MODE = 'demo';
 process.env.JWT_SECRET = 'integration-test-secret-0123456789abcdef-tests-only';
 
+// Resolve the integration-test database and pin DATABASE_URL to it so the
+// app, the schema, and the seed all use exactly the database being tested.
+const RESOLVED_TEST_DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgres://localhost:5432/securex_test';
+process.env.DATABASE_URL = RESOLVED_TEST_DB;
+
+// Safety rail: never run the integration suite against anything that is not
+// clearly a test database.
+const TEST_DB_NAME = (() => {
+  try {
+    return new URL(RESOLVED_TEST_DB).pathname.replace(/^\//, '');
+  } catch {
+    return '';
+  }
+})();
+if (!/test/i.test(TEST_DB_NAME)) {
+  throw new Error(
+    `Refusing to run integration tests against database "${TEST_DB_NAME}". ` +
+    'Point DATABASE_URL or TEST_DATABASE_URL at a dedicated *test* database (e.g. securex_test).',
+  );
+}
+
 let app: Express;
-let closeDb: () => void;
+let closeDb: () => Promise<void>;
 
 before(async () => {
+  // Deterministic baseline: wipe the public schema, then let initDb re-create
+  // the schema and re-seed canonical demo data.
+  const reset = new Client({ connectionString: RESOLVED_TEST_DB });
+  await reset.connect();
+  try {
+    await reset.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+  } finally {
+    await reset.end();
+  }
+
   const database = await import('../db/database.js');
   closeDb = database.closeDb;
-  database.initDb();
+  await database.initDb();
   const { createApp: appFactory } = await import('../app.js');
   app = appFactory();
 });
 
-after(() => {
-  closeDb();
-  rmSync(path.dirname(process.env.DB_PATH as string), { recursive: true, force: true });
+after(async () => {
+  await closeDb();
 });
 
 interface LoginResponse {

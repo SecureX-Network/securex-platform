@@ -1,88 +1,137 @@
-import { mkdirSync, readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import pg, { type Pool, type PoolClient } from 'pg';
 import { serverConfig } from '../config.js';
 import { logger } from '../services/logger.js';
 import { seedIfEmpty } from './seed.js';
 
 export type Row = Record<string, unknown>;
-export type SqlValue = SQLInputValue | undefined;
+export type SqlValue = string | number | null | boolean | object | undefined;
 
-function normalize(value: SqlValue): SQLInputValue {
+// int8 (bigint) -> number so COUNT(), MAX(), etc. keep the numeric semantics
+// the REST contract expects (SQLite returns numbers; pg returns bigints as
+// strings by default). Scalar int8 columns do not exist in the schema.
+pg.types.setTypeParser(20, (value) => (value === null ? null : Number(value)));
+
+function normalize(value: SqlValue): unknown {
   return value === undefined ? null : value;
 }
 
 /**
- * SQLite persistence via Node's built-in `node:sqlite` (stable on Node 22+).
- * The whole Node runtime is the app server, so a synchronous, single-connection
- * adapter keeps the API deterministic with zero native-compilation risk.
+ * PostgreSQL persistence via node-postgres. The whole Node runtime is the app
+ * server, so a connection pool with a thin async wrapper (all/get/run and a
+ * transaction helper) keeps the API deterministic while staying dependency-free.
+ *
+ * Public SQL fragments use the same `?` placeholders as the SQLite adapter;
+ * they are renumbered to PG's `$1..$n` positional style before execution.
  */
-let db: DatabaseSync | null = null;
+let pool: Pool | null = null;
 
-function ensureDataDir(): void {
+/** Client bound to the enclosing transaction, if any (transaction() scope only). */
+const currentTx = new AsyncLocalStorage<PoolClient>();
+
+function translate(sql: string): string {
+  let n = 0;
+  return sql.replace(/\?/g, () => `$${++n}`);
+}
+
+function activeStore(): Pool | PoolClient {
+  return currentTx.getStore() ?? getPool();
+}
+
+/** Lazily-created shared pool. Creating a Pool never blocks; queries connect. */
+export function getPool(): Pool {
+  if (!pool) {
+    pool = new pg.Pool({
+      connectionString: serverConfig.databaseUrl,
+      max: serverConfig.databasePoolMax,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+    });
+    pool.on('error', (err) => {
+      logger.error('db.pool_error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+    logger.info('db.opened', { database: describeDatabase(serverConfig.databaseUrl) });
+  }
+  return pool;
+}
+
+/**
+ * Log a DATABASE_URL without ever leaking credentials: only the resolved
+ * host and database name (no user, no password, no query params).
+ */
+export function describeDatabase(connectionString: string): string {
   try {
-    mkdirSync(dirname(serverConfig.dbPath), { recursive: true });
+    const url = new URL(connectionString);
+    const host = url.hostname || 'localhost';
+    const database = url.pathname.replace(/^\//, '');
+    return `${host}/${database}`;
   } catch {
-    // Directory creation is best-effort; opening the DB below will surface errors.
+    return 'postgres';
   }
 }
 
-export function getDb(): DatabaseSync {
-  if (db) return db;
-  ensureDataDir();
-  db = new DatabaseSync(serverConfig.dbPath);
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-  `);
-  logger.info('db.opened', { target: serverConfig.dbPath });
-  return db;
-}
-
-export function applySchema(): void {
-  const d = getDb();
+export async function applySchema(): Promise<void> {
   const sql = readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
-  d.exec(sql);
+  await getPool().query(sql);
 }
 
-export function all<T = Row>(sql: string, ...params: SqlValue[]): T[] {
-  return getDb().prepare(sql).all(...(params.map(normalize) as SQLInputValue[])) as T[];
+export async function all<T = Row>(sql: string, ...params: SqlValue[]): Promise<T[]> {
+  const res = await activeStore().query(translate(sql), params.map(normalize));
+  return res.rows as T[];
 }
 
-export function get<T = Row>(sql: string, ...params: SqlValue[]): T | undefined {
-  return getDb().prepare(sql).get(...(params.map(normalize) as SQLInputValue[])) as T | undefined;
+export async function get<T = Row>(sql: string, ...params: SqlValue[]): Promise<T | undefined> {
+  const res = await activeStore().query(translate(sql), params.map(normalize));
+  return res.rows[0] as T | undefined;
 }
 
-export function run(sql: string, ...params: SqlValue[]): void {
-  getDb().prepare(sql).run(...(params.map(normalize) as SQLInputValue[]));
+export async function run(sql: string, ...params: SqlValue[]): Promise<void> {
+  await activeStore().query(translate(sql), params.map(normalize));
 }
 
-export function transaction<T>(fn: () => T): T {
-  const d = getDb();
-  d.exec('BEGIN');
+/**
+ * Run `fn` inside a single PG transaction. `all`/`get`/`run` called inside
+ * `fn` automatically use the transaction's dedicated connection. The callback
+ * may be async; the connection is always returned to the pool.
+ */
+export async function transaction<T>(fn: () => Promise<T> | T): Promise<T> {
+  const client = await getPool().connect();
   try {
-    const result = fn();
-    d.exec('COMMIT');
+    await client.query('BEGIN');
+    const result = await currentTx.run(client, async () => fn());
+    await client.query('COMMIT');
     return result;
   } catch (err) {
-    d.exec('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Rollback failures are best-effort; surface the original error.
+    }
     throw err;
+  } finally {
+    currentTx.disable();
+    client.release();
   }
 }
 
-export function closeDb(): void {
-  if (db) {
-    db.close();
-    db = null;
+export async function closeDb(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = null;
   }
 }
 
 /** Create tables then seed canonical demo data if this is a fresh database. */
-export function initDb(): void {
-  applySchema();
-  const meta = get<Row>('SELECT value FROM schema_meta WHERE key = ?', 'seeded');
+export async function initDb(): Promise<void> {
+  await applySchema();
+  const meta = await get<Row>('SELECT value FROM schema_meta WHERE key = ?', 'seeded');
+  let seeded = false;
   if (serverConfig.seedOnBoot && !meta) {
-    seedIfEmpty();
+    await seedIfEmpty();
+    seeded = true;
   }
-  logger.info('db.ready', { dataMode: serverConfig.dataMode, seeded: Boolean(meta ?? false) });
+  logger.info('db.ready', { dataMode: serverConfig.dataMode, seeded });
 }
