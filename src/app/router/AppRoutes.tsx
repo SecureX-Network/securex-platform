@@ -228,7 +228,16 @@ export function AppRoutes() {
       <Route path="/explorer/security/evidence/:id" element={withSuspense(<SecurityEvidencePage />)} />
 
       {/* Fraud & Tampering */}
-      <Route path="/fraud"element={withSuspense(<FraudDashboardPage />)} />
+      <Route
+        path="/fraud"
+        element={
+          <ProtectedRoute allowedRoles={['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']}>
+            <DashboardLayout navigation={securityNavigation} title="Security Center" />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={withSuspense(<FraudDashboardPage />)} />
+      </Route>
 
       {/* Security Center */}
       <Route

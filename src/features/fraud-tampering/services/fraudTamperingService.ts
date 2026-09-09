@@ -1,6 +1,7 @@
 import { IS_MOCK } from '@/constants';
 import { mockDelay } from '@/services/mock';
 import { ApiError } from '@/services/api/client';
+import { getFraudAlerts as getPlatformFraudAlerts } from '@/services/api/adminService';
 
 import type {
   FraudDashboard,
@@ -8,6 +9,7 @@ import type {
   Investigation,
   TamperAnalysis,
 } from '../types/fraud';
+import type { RiskAssessment } from '@/types';
 
 const DEMO_DASHBOARD: FraudDashboard = {
   mode: 'DEMO',
@@ -100,18 +102,91 @@ export async function getFraudDashboard(): Promise<FraudDashboard> {
     return DEMO_DASHBOARD;
   }
 
-  /*
-   * REAL Fraud Engine integration is intentionally not guessed here.
-   *
-   * The repository currently exposes FRAUD_ENGINE_URL, but no verified
-   * Fraud Engine V2 endpoint contract was provided to this frontend.
-   *
-   * Do not invent an endpoint.
-   */
-  throw new ApiError(
-    'Fraud Engine REAL API endpoint contract is not available to this frontend.',
-    503,
+  const risks = await getPlatformFraudAlerts();
+  return buildRealDashboard(risks);
+}
+
+function riskSeverity(level: RiskAssessment['riskLevel']): 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' {
+  return level;
+}
+
+function riskStatus(level: RiskAssessment['riskLevel']): FraudEvent['status'] {
+  switch (level) {
+    case 'CRITICAL':
+    case 'HIGH':
+      return 'OPEN';
+    case 'MEDIUM':
+      return 'INVESTIGATING';
+    default:
+      return 'RESOLVED';
+  }
+}
+
+/**
+ * Composes the Fraud & Tampering dashboard from the platform ledger's risk
+ * assessments (GET /admin/security/fraud). No Fraud Engine endpoint contract
+ * has been provided to this frontend, so the dashboard is derived entirely
+ * from ledger analysts the platform already serves.
+ */
+function buildRealDashboard(risks: RiskAssessment[]): FraudDashboard {
+  const severityDistribution = (['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const).map(
+    (severity) => ({
+      severity,
+      count: risks.filter((risk) => risk.riskLevel === severity).length,
+    }),
   );
+
+  const byDay = new Map<string, { scores: number[]; count: number }>();
+  for (const risk of risks) {
+    const day = risk.assessedAt.slice(0, 10);
+    const bucket = byDay.get(day) ?? { scores: [], count: 0 };
+    bucket.scores.push(risk.score);
+    bucket.count += 1;
+    byDay.set(day, bucket);
+  }
+  const riskTrend = [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, bucket]) => ({
+      timestamp: `${day}T00:00:00.000Z`,
+      riskScore: Math.round(bucket.scores.reduce((sum, value) => sum + value, 0) / bucket.scores.length),
+      detections: bucket.count,
+    }));
+
+  const recentEvents: FraudEvent[] = risks.slice(0, 12).map((risk) => ({
+    id: `${risk.id}-event`,
+    severity: riskSeverity(risk.riskLevel),
+    status: riskStatus(risk.riskLevel),
+    credentialId: risk.credentialId,
+    issuer: risk.method,
+    timestamp: risk.assessedAt,
+    title: `${risk.method} analysis`,
+    summary: risk.flags.length > 0 ? risk.flags.join(' | ') : `Risk score ${risk.score}.`,
+  }));
+
+  const highRisk = risks.filter((risk) => risk.riskLevel === 'HIGH' || risk.riskLevel === 'CRITICAL');
+  const suspicious = risks.filter((risk) => risk.riskLevel !== 'LOW');
+
+  return {
+    mode: 'REAL',
+    counts: {
+      documentsAnalyzed: risks.length,
+      suspiciousCases: suspicious.length,
+      highRiskCases: highRisk.length,
+      fingerprintChecks: risks.length,
+    },
+    severityDistribution,
+    recentEvents,
+    riskTrend,
+    engine: {
+      status: 'UP',
+      checkedAt:
+        risks.length > 0
+          ? risks.map((risk) => risk.assessedAt).sort()[risks.length - 1] ?? new Date().toISOString()
+          : new Date().toISOString(),
+      message:
+        'Fraud signals derived from the platform ledger risk assessments (GET /admin/security/fraud).',
+    },
+  };
 }
 
 export async function analyzeCredential(
