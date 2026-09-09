@@ -74,6 +74,23 @@ export function createApp() {
     fail(res, 404, 'NOT_FOUND', 'Endpoint not found. Please check the URL and try again.');
   });
 
+  function pgErrorCode(err: unknown): string | undefined {
+    if (typeof err === 'object' && err !== null && 'code' in err) {
+      const code = (err as { code?: unknown }).code;
+      return typeof code === 'string' ? code : undefined;
+    }
+    return undefined;
+  }
+
+  /** PostgreSQL constraint violations -> safe, categorized REST responses. */
+  const PG_CONSTRAINT_ERRORS: Record<string, [number, string, string]> = {
+    '23505': [409, 'DUPLICATE_IDENTITY', 'A record with this identity already exists.'],
+    '23503': [409, 'INVALID_REFERENCE', 'The request references an entity that does not exist.'],
+    '23502': [400, 'REQUIRED_FIELD', 'A required field was not provided.'],
+    '23514': [422, 'INVALID_VALUE', 'A field value violates an allowed constraint.'],
+    '22P02': [400, 'INVALID_VALUE', 'A provided value has an invalid format.'],
+  };
+
   app.use('/api', api);
   app.use('/api', (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (
@@ -82,6 +99,12 @@ export function createApp() {
       typeof err === 'object'
     ) {
       return fail(res, 400, 'INVALID_JSON', 'Malformed JSON in request body.');
+    }
+    const code = pgErrorCode(err);
+    if (code) {
+      const [status, errorCode, message] =
+        PG_CONSTRAINT_ERRORS[code] ?? [409, 'DATABASE_CONSTRAINT', 'The database rejected this operation.'];
+      return fail(res, status, errorCode, message);
     }
     return serverError(res, err, 'api');
   });

@@ -1,5 +1,5 @@
 import { run } from '../db/database.js';
-import { randomToken } from '../utils/ids.js';
+import { entityId } from '../utils/ids.js';
 import { logger } from './logger.js';
 import type { AuthUser } from '../middleware/auth.js';
 
@@ -22,7 +22,7 @@ export async function writeAudit(entry: AuditEntry): Promise<void> {
     await run(
       `INSERT INTO audit_events (id, action, actor, actor_role, target, target_type, details, ip_address, timestamp)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      `aud-${Date.now().toString(36)}-${randomToken(6)}`,
+      entityId('aud'),
       entry.action,
       entry.actor,
       entry.actorRole,

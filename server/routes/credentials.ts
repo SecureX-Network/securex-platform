@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { all, get, run } from '../db/database.js';
+import { all, get, run, transaction } from '../db/database.js';
 import { mapCredentialRow, type CredentialRow } from '../db/mappers.js';
 import { requireAuth, requireRole, type AuthenticatedRequest, type UserRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { auditFor } from '../services/audit.js';
 import { created, fail, ok, param } from '../utils/http.js';
-import { makeHex, newPublicCredentialId, randomToken, nowIso } from '../utils/ids.js';
+import { entityId, makeHex, newPublicCredentialId, newTxRef, nowIso } from '../utils/ids.js';
 
 export const credentialsRouter = Router();
 
@@ -27,6 +27,63 @@ async function findByPublicOrInternal(id: string): Promise<CredentialRow | undef
     id,
     id,
   );
+}
+
+interface HolderLookup {
+  holderId?: string;
+  holderEmail: string;
+  holderName: string;
+}
+
+/**
+ * Resolve the canonical holder identity for a new credential. The backend is
+ * the only authority that decides holder identity:
+ *
+ *   1. an explicit holderId that resolves to a persisted holder row wins;
+ *   2. otherwise the holder is looked up (case-insensitive) by email;
+ *   3. if a platform user owns that email, the holder identity IS the platform
+ *      user id (wallet identity == platform identity — one record);
+ *   4. otherwise a brand-new holder row is created with a backend-generated id.
+ *
+ * A client-supplied id is never stored unless it already exists on the
+ * backend, so the frontend cannot inject an invented persistent identity.
+ */
+async function resolveHolderId(input: HolderLookup): Promise<string> {
+  const { holderId, holderEmail, holderName } = input;
+  const email = holderEmail.trim().toLowerCase();
+
+  if (holderId && holderId.trim()) {
+    const existing = await get<{ id: string }>('SELECT id FROM holders WHERE id = ?', holderId.trim());
+    if (existing) return existing.id;
+  }
+
+  const byEmail = await get<{ id: string }>('SELECT id FROM holders WHERE lower(email) = lower(?)', email);
+  if (byEmail) return byEmail.id;
+
+  const user = await get<{ id: string }>('SELECT id FROM users WHERE lower(email) = lower(?)', email);
+  if (user) {
+    const holderForUser = await get<{ id: string }>('SELECT id FROM holders WHERE id = ?', user.id);
+    if (!holderForUser) {
+      await run(
+        `INSERT INTO holders (id, email, name, created_at) VALUES (?, ?, ?, ?)`,
+        user.id,
+        email,
+        holderName,
+        nowIso(),
+      );
+    }
+    return user.id;
+  }
+
+  const id = entityId('hol');
+  await run(
+    `INSERT INTO holders (id, email, name, created_at) VALUES (?, ?, ?, ?)`,
+    id,
+    email,
+    holderName,
+    nowIso(),
+  );
+  return id;
 }
 
 credentialsRouter.get('/', requireAuth, (req: Request, res: Response) => {
@@ -66,7 +123,8 @@ credentialsRouter.post(
     { name: 'title', required: true, type: 'string' },
     { name: 'description', required: true, type: 'string' },
     { name: 'holderName', required: true, type: 'string' },
-    { name: 'holderId', required: true, type: 'string' },
+    { name: 'holderEmail', required: true, type: 'email' },
+    { name: 'holderId', type: 'string' },
     { name: 'issuerId', required: true, type: 'string' },
     { name: 'issuerName', required: true, type: 'string' },
     { name: 'institutionId', required: true, type: 'string' },
@@ -87,7 +145,8 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
     title: string;
     description: string;
     holderName: string;
-    holderId: string;
+    holderEmail: string;
+    holderId?: string;
     issuerId: string;
     issuerName: string;
     institutionId: string;
@@ -108,54 +167,67 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
     return;
   }
 
-  const id = `cred-${Date.now().toString(36)}-${randomToken(6)}`;
-  const credentialId = newPublicCredentialId(Date.now() % 9000);
-  const issuedAt = nowIso();
-  await run(
-    `INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id,
-       issuer_id, institution_id, status, issued_at, expires_at, tx_hash, merkle_root, digital_signature, template_id, metadata_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, ?, ?)`,
-    id,
-    credentialId,
-    body.type,
-    body.title,
-    body.description,
-    body.holderName,
-    body.holderId,
-    body.issuerId,
-    body.institutionId,
-    issuedAt,
-    body.expiresAt ?? null,
-    `0x${makeHex(Date.now() % 100000)}`,
-    makeHex((Date.now() % 100000) + 1000),
-    makeHex((Date.now() % 100000) + 2000),
-    body.templateId ?? null,
-    body.metadata ? JSON.stringify(body.metadata) : null,
-  );
+  let issuedRow: ReturnType<typeof mapCredentialRow> | undefined;
+  await transaction(async () => {
+    const holderId = await resolveHolderId({
+      holderId: body.holderId,
+      holderEmail: body.holderEmail,
+      holderName: body.holderName,
+    });
 
-  const top = await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks');
-  const height = (top?.max ?? 0) + 1;
-  await run(
-    `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
-     VALUES (?, ?, 'CREDENTIAL_ISSUED', ?, ?, ?, ?, 'PENDING', ?, 0)`,
-    `0x${makeHex(70_000 + (Date.now() % 90_000))}`,
-    height,
-    issuedAt,
-    `0x${makeHex(80_000, 40)}`,
-    `0x${makeHex(90_000, 40)}`,
-    credentialId,
-    21_000,
-  );
+    // Canonical identities are generated here — never accepted from the client.
+    const id = entityId('cred');
+    const credentialId = newPublicCredentialId(Date.now() % 9000);
+    const issuedAt = nowIso();
+    await run(
+      `INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id,
+         issuer_id, institution_id, status, issued_at, expires_at, tx_hash, merkle_root, digital_signature, template_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      credentialId,
+      body.type,
+      body.title,
+      body.description,
+      body.holderName,
+      holderId,
+      body.issuerId,
+      body.institutionId,
+      issuedAt,
+      body.expiresAt ?? null,
+      newTxRef(),
+      makeHex((Date.now() % 100000) + 1000),
+      makeHex((Date.now() % 100000) + 2000),
+      body.templateId ?? null,
+      body.metadata ? JSON.stringify(body.metadata) : null,
+    );
 
-  await auditFor(auth, {
-    action: 'CREDENTIAL_ISSUED',
-    target: id,
-    targetType: 'credential',
-    details: `institution=${body.institutionName}; credential=${credentialId}; via web issue flow`,
+    const top = await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks');
+    const height = (top?.max ?? 0) + 1;
+    await run(
+      `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, credential_row_id, status, gas_used, confirmations)
+       VALUES (?, ?, 'CREDENTIAL_ISSUED', ?, ?, ?, ?, ?, 'PENDING', ?, 0)`,
+      newTxRef(),
+      height,
+      issuedAt,
+      `0x${makeHex(80_000, 40)}`,
+      `0x${makeHex(90_000, 40)}`,
+      credentialId,
+      id,
+      21_000,
+    );
+
+    await auditFor(auth, {
+      action: 'CREDENTIAL_ISSUED',
+      target: id,
+      targetType: 'credential',
+      details: `institution=${body.institutionName}; credential=${credentialId}; via web issue flow`,
+    });
+
+    const row = await get<CredentialRow>(`${credentialSelect} WHERE c.id = ?`, id);
+    issuedRow = row ? mapCredentialRow(row) : undefined;
   });
 
-  const row = await get<CredentialRow>(`${credentialSelect} WHERE c.id = ?`, id);
-  created(res, row ? mapCredentialRow(row) : undefined);
+  created(res, issuedRow);
 }
 
 credentialsRouter.post(
@@ -175,29 +247,32 @@ async function revokeCredentialHandler(req: Request, res: Response): Promise<voi
     return;
   }
   const revokedAt = nowIso();
-  await run(
-    `UPDATE credentials SET status = 'REVOKED', revoked_at = ?, revoked_reason = ? WHERE id = ?`,
-    revokedAt,
-    'Revoked by issuer',
-    row.id,
-  );
-  const maxHeight = (await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks'))?.max ?? 0;
-  await run(
-    `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
-     VALUES (?, ?, 'CREDENTIAL_REVOKED', ?, ?, ?, ?, 'CONFIRMED', ?, 24)`,
-    `0x${makeHex(100_000 + (Date.now() % 90_000))}`,
-    maxHeight,
-    revokedAt,
-    `0x${makeHex(110_000, 40)}`,
-    `0x${makeHex(120_000, 40)}`,
-    row.credential_id,
-    21_000,
-  );
-  await auditFor(auth, {
-    action: 'CREDENTIAL_REVOKED',
-    target: row.id,
-    targetType: 'credential',
-    details: `institution=${row.institution_name}; credential=${row.credential_id}; reason=${row.revoked_reason}`,
+  await transaction(async () => {
+    await run(
+      `UPDATE credentials SET status = 'REVOKED', revoked_at = ?, revoked_reason = ? WHERE id = ?`,
+      revokedAt,
+      'Revoked by issuer',
+      row.id,
+    );
+    const maxHeight = (await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks'))?.max ?? 0;
+    await run(
+      `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, credential_row_id, status, gas_used, confirmations)
+       VALUES (?, ?, 'CREDENTIAL_REVOKED', ?, ?, ?, ?, ?, 'CONFIRMED', ?, 24)`,
+      newTxRef(),
+      maxHeight,
+      revokedAt,
+      `0x${makeHex(110_000, 40)}`,
+      `0x${makeHex(120_000, 40)}`,
+      row.credential_id,
+      row.id,
+      21_000,
+    );
+    await auditFor(auth, {
+      action: 'CREDENTIAL_REVOKED',
+      target: row.id,
+      targetType: 'credential',
+      details: `institution=${row.institution_name}; credential=${row.credential_id}; reason=${row.revoked_reason}`,
+    });
   });
   ok(res, { message: 'Credential revoked.' });
 }

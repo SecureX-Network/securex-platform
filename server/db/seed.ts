@@ -13,6 +13,12 @@ import { logger } from '../services/logger.js';
  *
  * Seeding runs only on a fresh database (no schema_meta.seeded row), so it
  * never overwrites existing rows on re-deploys.
+ *
+ * Insert order follows foreign-key dependencies (holders before users and
+ * credentials, institutions before users/issuers/credentials) and every
+ * identity was preserved from the SQLite baseline: the seeded public
+ * credential IDs (SX-...) and internal record IDs (cred-*, usr-*, inst-*)
+ * are canonical and must not be regenerated.
  */
 
 const DAY = 86_400_000;
@@ -37,6 +43,49 @@ export async function seedIfEmpty(): Promise<void> {
   let seededCredentialCount = 0;
 
   await transaction(async () => {
+    // ── Institutions ───────────────────────────────────────────────────
+    const institutions: Array<[string, string, string, string, number, string, string]> = [
+      ['inst-stanford', 'Stanford University', 'University', 'https://www.stanford.edu', 1, 'ACTIVE', iso(620)],
+      ['inst-mit', 'Massachusetts Institute of Technology', 'University', 'https://www.mit.edu', 1, 'ACTIVE', iso(615)],
+      ['inst-berkeley', 'University of California, Berkeley', 'University', 'https://berkeley.edu', 1, 'ACTIVE', iso(605)],
+      ['inst-gatech', 'Georgia Institute of Technology', 'University', 'https://www.gatech.edu', 1, 'ACTIVE', iso(590)],
+      ['inst-jhu', 'Johns Hopkins University', 'University', 'https://www.jhu.edu', 1, 'ACTIVE', iso(575)],
+      ['inst-ancc', 'American Nurses Credentialing Center', 'Certification Body', 'https://www.nursingworld.org/ancc/', 1, 'ACTIVE', iso(560)],
+      ['inst-ieee', 'IEEE Computer Society', 'Professional Association', 'https://www.computer.org', 1, 'ACTIVE', iso(545)],
+      ['inst-aws', 'AWS Training and Certification', 'Corporate Training Provider', 'https://aws.amazon.com/training/', 1, 'ACTIVE', iso(520)],
+      ['inst-city', 'City University of Technology', 'University', 'https://www.citytech.edu', 0, 'PENDING', iso(12)],
+      ['inst-gca', 'Global Certification Alliance', 'Certification Body', 'https://www.gcacert.org', 0, 'SUSPENDED', iso(200)],
+    ];
+    for (const inst of institutions) {
+      await run(
+        `INSERT INTO institutions (id, name, type, website, verified, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        inst[0], inst[1], inst[2], inst[3], inst[4], inst[5], inst[6],
+      );
+    }
+
+    // ── Holders ────────────────────────────────────────────────────────
+    // Backend identity authority: every credential's holder_id resolves to a
+    // holders row. Demo holder ids are the platform user ids they map to, so
+    // wallet identity == platform identity for the demo holders too.
+    const holders: Array<[string, string, string]> = [
+      ['usr-holder-001', 'emily.rodriguez@example.com', 'Emily Rodriguez'],
+      ['usr-holder-002', 'daniel.kim@example.com', 'Daniel Kim'],
+      ['usr-holder-003', 'priya.sharma@example.com', 'Priya Sharma'],
+      ['usr-holder-004', 'sophia.martinez@example.com', 'Sophia Martinez'],
+      ['usr-holder-005', 'robert.nakamura@example.com', 'Robert Nakamura'],
+      ['usr-holder-006', 'james.obrien@example.com', 'James O\u2019Brien'],
+      ['usr-holder-007', 'sarah.kim@example.com', 'Sarah Kim'],
+      ['usr-holder-008', 'anna.kowalski@example.com', 'Anna Kowalski'],
+      ['usr-holder-009', 'monica.patel@example.com', 'Monica Patel'],
+      ['usr-employer-001', 'marcus.johnson@acme.com', 'Marcus Johnson'],
+    ];
+    for (const h of holders) {
+      await run(
+        `INSERT INTO holders (id, email, name, created_at) VALUES (?, ?, ?, ?)`,
+        h[0], h[1], h[2], iso(460),
+      );
+    }
+
     // ── Users (incl. hashed demo password) ────────────────────────────
     const users: Array<[string, string, string, string, string | null, string, string]> = [
       ['usr-admin-001', 'admin@securex.io', 'Alex Morgan', 'ADMIN', null, iso(540), iso(0, 2)],
@@ -64,26 +113,6 @@ export async function seedIfEmpty(): Promise<void> {
         u[0], u[1], u[2], u[3], u[4], demoPasswordHash, i <= 4 ? 1 : 0, u[5], u[6],
       );
       seededUserCount = i;
-    }
-
-    // ── Institutions ───────────────────────────────────────────────────
-    const institutions: Array<[string, string, string, string, number, string, string]> = [
-      ['inst-stanford', 'Stanford University', 'University', 'https://www.stanford.edu', 1, 'ACTIVE', iso(620)],
-      ['inst-mit', 'Massachusetts Institute of Technology', 'University', 'https://www.mit.edu', 1, 'ACTIVE', iso(615)],
-      ['inst-berkeley', 'University of California, Berkeley', 'University', 'https://berkeley.edu', 1, 'ACTIVE', iso(605)],
-      ['inst-gatech', 'Georgia Institute of Technology', 'University', 'https://www.gatech.edu', 1, 'ACTIVE', iso(590)],
-      ['inst-jhu', 'Johns Hopkins University', 'University', 'https://www.jhu.edu', 1, 'ACTIVE', iso(575)],
-      ['inst-ancc', 'American Nurses Credentialing Center', 'Certification Body', 'https://www.nursingworld.org/ancc/', 1, 'ACTIVE', iso(560)],
-      ['inst-ieee', 'IEEE Computer Society', 'Professional Association', 'https://www.computer.org', 1, 'ACTIVE', iso(545)],
-      ['inst-aws', 'AWS Training and Certification', 'Corporate Training Provider', 'https://aws.amazon.com/training/', 1, 'ACTIVE', iso(520)],
-      ['inst-city', 'City University of Technology', 'University', 'https://www.citytech.edu', 0, 'PENDING', iso(12)],
-      ['inst-gca', 'Global Certification Alliance', 'Certification Body', 'https://www.gcacert.org', 0, 'SUSPENDED', iso(200)],
-    ];
-    for (const inst of institutions) {
-      await run(
-        `INSERT INTO institutions (id, name, type, website, verified, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        inst[0], inst[1], inst[2], inst[3], inst[4], inst[5], inst[6],
-      );
     }
 
     // ── Issuers ────────────────────────────────────────────────────────
@@ -172,6 +201,9 @@ export async function seedIfEmpty(): Promise<void> {
       );
     }
 
+    const creds = await all<{ id: string; credential_id: string }>('SELECT id, credential_id FROM credentials');
+    const credRowByPublic = new Map(creds.map((c) => [c.credential_id, c.id]));
+
     // ── Blocks (mirrors the mock generator, 22 blocks) ─────────────────
     const validators = ['SecureX Validator 01', 'SecureX Validator 02', 'SecureX Validator 03', 'SecureX Validator 04'];
     let previousHash = '0'.repeat(64);
@@ -191,7 +223,6 @@ export async function seedIfEmpty(): Promise<void> {
     }
 
     // ── Transactions (mirrors the mock generator, 34 txs) ──────────────
-    const creds = await all<{ id: string; credential_id: string }>('SELECT id, credential_id FROM credentials');
     const txTypes = ['CREDENTIAL_ISSUED', 'CREDENTIAL_VERIFIED', 'CREDENTIAL_REVOKED', 'CREDENTIAL_SUSPENDED', 'INSTITUTION_REGISTERED', 'ISSUER_ADDED', 'BLOCK_CREATED'];
     const froms = Array.from({ length: 6 }, (_, i) => `0x${makeHex(9101 + i, 40)}`);
     const start = Date.now() - 34 * 5.4 * 60_000;
@@ -199,8 +230,8 @@ export async function seedIfEmpty(): Promise<void> {
       const type = txTypes[ti % 7] as string;
       const cred = creds[ti % creds.length];
       await run(
-        `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, status, gas_used, confirmations)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, credential_row_id, status, gas_used, confirmations)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         `0x${makeHex(50_000 + ti * 31)}`,
         (ti % 22) + 1,
         type,
@@ -208,6 +239,7 @@ export async function seedIfEmpty(): Promise<void> {
         froms[ti % 6],
         `0x${makeHex(60_000 + ti * 37, 40)}`,
         cred?.credential_id ?? null,
+        cred ? credRowByPublic.get(cred.credential_id) ?? null : null,
         ti % 17 === 0 ? 'PENDING' : ti % 29 === 0 ? 'FAILED' : 'CONFIRMED',
         21_000 + ((ti * 173) % 90_000),
         ti % 17 === 0 ? 0 : 12 + (ti % 40),
@@ -223,8 +255,9 @@ export async function seedIfEmpty(): Promise<void> {
     ];
     for (const r of riskAssessments) {
       await run(
-        `INSERT INTO risk_assessments (id, credential_id, risk_level, score, flags_json, method, assessed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        r[0], r[1], r[2], r[3], JSON.stringify(r[4]), r[5], r[6],
+        `INSERT INTO risk_assessments (id, credential_id, credential_row_id, risk_level, score, flags_json, method, assessed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        r[0], r[1], credRowByPublic.get(r[1]) ?? null, r[2], r[3], JSON.stringify(r[4]), r[5], r[6],
       );
     }
 
@@ -239,9 +272,9 @@ export async function seedIfEmpty(): Promise<void> {
     ];
     for (const h of history) {
       await run(
-        `INSERT INTO verification_history (id, credential_id, credential_title, verified_at, verified_by, result, method, ip_address)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
+        `INSERT INTO verification_history (id, credential_id, credential_row_id, credential_title, verified_at, verified_by, result, method, ip_address)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        h[0], h[1], credRowByPublic.get(h[1] as string) ?? null, h[2], h[3], h[4], h[5], h[6], h[7],
       );
     }
 

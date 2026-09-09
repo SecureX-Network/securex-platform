@@ -6,8 +6,8 @@ import {
   type CredentialRow,
   type VerificationHistoryRow,
 } from '../db/mappers.js';
-import { fail, ok } from '../utils/http.js';
-import { randomToken } from '../utils/ids.js';
+import { fail, ok, param } from '../utils/http.js';
+import { entityId } from '../utils/ids.js';
 import { serverConfig } from '../config.js';
 
 export const verificationsRouter = Router();
@@ -56,12 +56,19 @@ async function credentialByPublicId(credentialId: string): Promise<CredentialRow
   );
 }
 
-async function recordVerification(credentialId: string, credentialTitle: string, result: string, method: string): Promise<void> {
+async function recordVerification(
+  credentialId: string,
+  credentialRowId: string | undefined,
+  credentialTitle: string,
+  result: string,
+  method: string,
+): Promise<void> {
   await run(
-    `INSERT INTO verification_history (id, credential_id, credential_title, verified_at, verified_by, result, method, ip_address)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    `vh-${Date.now().toString(36)}-${randomToken(6)}`,
+    `INSERT INTO verification_history (id, credential_id, credential_row_id, credential_title, verified_at, verified_by, result, method, ip_address)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    entityId('vh'),
     credentialId,
+    credentialRowId ?? null,
     credentialTitle,
     new Date().toISOString(),
     serverConfig.dataMode === 'real' ? 'Web Verification Portal' : 'Web Verification Portal',
@@ -80,7 +87,7 @@ async function buildVerification(credentialId: string, documentHash?: string) {
   const verifiedAt = new Date().toISOString();
 
   if (!row) {
-    await recordVerification(credentialId, 'Unknown', 'NOT_FOUND', 'API');
+    await recordVerification(credentialId, undefined, 'Unknown', 'NOT_FOUND', 'API');
     return {
       credentialId,
       status: 'NOT_FOUND',
@@ -104,7 +111,7 @@ async function buildVerification(credentialId: string, documentHash?: string) {
   const isValid = row.status === 'VALID';
   const risk = riskForStatus(row.status);
 
-  await recordVerification(row.credential_id, row.title, row.status, 'API');
+  await recordVerification(row.credential_id, row.id, row.title, row.status, 'API');
 
   const signatureVerification = {
     valid: row.status !== 'TAMPERED' && row.status !== 'NOT_FOUND',
@@ -204,6 +211,26 @@ async function searchHandler(req: Request, res: Response): Promise<void> {
     fail(res, 400, 'MISSING_CREDENTIAL_ID', 'Missing required field: credentialId');
     return;
   }
+  const documentHash = typeof req.query.hash === 'string' ? req.query.hash : undefined;
+  if (documentHash && !isValidSha256Hex(documentHash)) {
+    fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');
+    return;
+  }
+  ok(res, await buildVerification(credentialId, documentHash));
+}
+
+/**
+ * Canonical path-form verification: GET /verifications/:id resolves the public
+ * SecureX credential identity (the same SX-... value carried in QR codes,
+ * wallet shares and verification URLs). Registered after /history and /search
+ * so those literal segments always win.
+ */
+verificationsRouter.get('/:id', (req: Request, res: Response) => {
+  void verifyPathHandler(req, res);
+});
+
+async function verifyPathHandler(req: Request, res: Response): Promise<void> {
+  const credentialId = param(req, 'id');
   const documentHash = typeof req.query.hash === 'string' ? req.query.hash : undefined;
   if (documentHash && !isValidSha256Hex(documentHash)) {
     fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');

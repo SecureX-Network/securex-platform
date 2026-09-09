@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from 'pg';
 import request from 'supertest';
 import type { Express } from 'express';
+import type * as databaseModule from '../db/database.js';
 
 process.env.APP_ENV = 'test';
 process.env.SEED_ON_BOOT = 'true';
@@ -32,6 +33,7 @@ if (!/test/i.test(TEST_DB_NAME)) {
 
 let app: Express;
 let closeDb: () => Promise<void>;
+let database: typeof databaseModule;
 
 before(async () => {
   // Deterministic baseline: wipe the public schema, then let initDb re-create
@@ -44,7 +46,7 @@ before(async () => {
     await reset.end();
   }
 
-  const database = await import('../db/database.js');
+  database = await import('../db/database.js');
   closeDb = database.closeDb;
   await database.initDb();
   const { createApp: appFactory } = await import('../app.js');
@@ -346,6 +348,7 @@ describe('SecureX Platform API integration', () => {
         title: 'Cloud Security Fundamentals',
         description: 'Foundational course credential issued for integration verification.',
         holderName: 'Emily Rodriguez',
+        holderEmail: 'emily.rodriguez@example.com',
         holderId: 'usr-holder-001',
         issuerId: 'iss-stanford-online',
         issuerName: 'Stanford Online Learning',
@@ -354,6 +357,7 @@ describe('SecureX Platform API integration', () => {
       });
     assert.equal(res.status, 201);
     assert.ok(res.body.data.credentialId.startsWith('SX-'));
+    assert.match(res.body.data.id, /^cred-[0-9a-f]{8}-[0-9a-f]{4}/);
     assert.equal(res.body.data.status, 'VALID');
   });
 
@@ -367,6 +371,7 @@ describe('SecureX Platform API integration', () => {
         title: 'Master of Secure Systems',
         description: 'SIH demo issuance making the newly minted credential publicly verifiable.',
         holderName: 'Emily Rodriguez',
+        holderEmail: 'emily.rodriguez@example.com',
         holderId: 'usr-holder-001',
         issuerId: 'iss-stanford-online',
         issuerName: 'Stanford Online Learning',
@@ -398,5 +403,351 @@ describe('SecureX Platform API integration', () => {
       .set(bearer((await login('admin@securex.io')).data.token));
     assert.equal(cred.body.data.status, 'REVOKED');
     assert.ok(cred.body.data.revokedAt);
+  });
+
+  test('identity: two consecutive issues produce distinct canonical identities', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const payload = {
+      type: 'Certificate',
+      description: 'identity-distinctness test',
+      holderName: 'Emily Rodriguez',
+      holderEmail: 'emily.rodriguez@example.com',
+      issuerId: 'iss-stanford-online',
+      issuerName: 'Stanford Online Learning',
+      institutionId: 'inst-stanford',
+      institutionName: 'Stanford University',
+    };
+    const a = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({ ...payload, title: 'Identity Test A' });
+    const b = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({ ...payload, title: 'Identity Test B' });
+    assert.equal(a.status, 201);
+    assert.equal(b.status, 201);
+    assert.notEqual(a.body.data.id, b.body.data.id);
+    assert.notEqual(a.body.data.credentialId, b.body.data.credentialId);
+    assert.match(a.body.data.id, /^cred-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.match(b.body.data.id, /^cred-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.match(a.body.data.credentialId, /^SX-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
+  });
+
+  test('identity: issued credential relationships land in the ledger and audit trail', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const issue = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Certificate',
+        title: 'Relationship Trace Credential',
+        description: 'identity-relational-trace test',
+        holderName: 'Emily Rodriguez',
+        holderEmail: 'emily.rodriguez@example.com',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(issue.status, 201);
+    const iid = issue.body.data.id as string;
+    const pub = issue.body.data.credentialId as string;
+
+    const tx = await database.get<{ id: string; credential_row_id: string; type: string }>(
+      'SELECT id, credential_row_id, type FROM transactions WHERE credential_row_id = $1 LIMIT 1',
+      iid,
+    );
+    assert.ok(tx, 'ledger transaction references the issued credential via credential_row_id');
+    assert.match(tx.id, /^0x/);
+    assert.equal(tx.credential_row_id, iid);
+
+    const audit = await database.get<{ id: string; action: string }>(
+      'SELECT id, action FROM audit_events WHERE target = $1 AND action = $2 LIMIT 1',
+      iid,
+      'CREDENTIAL_ISSUED',
+    );
+    assert.ok(audit, 'audit event records the canonical internal credential id');
+    assert.match(audit.id, /^aud-/);
+
+    const rels = await database.get<{ holder: string; issuer: string; institution: string }>(
+      `SELECT c.holder_id AS holder, c.issuer_id AS issuer, c.institution_id AS institution
+         FROM credentials c WHERE c.id = $1`,
+      iid,
+    );
+    assert.ok(rels);
+    assert.equal(rels.holder, 'usr-holder-001');
+    assert.equal(rels.issuer, 'iss-stanford-online');
+    assert.equal(rels.institution, 'inst-stanford');
+    assert.equal(pub.startsWith('SX-'), true);
+  });
+
+  test('identity: verify-after-create resolves the same canonical public ID via path and query', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const issue = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Degree',
+        title: 'Canonical Verify Credential',
+        description: 'identity-verify-after-create test',
+        holderName: 'Emily Rodriguez',
+        holderEmail: 'emily.rodriguez@example.com',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(issue.status, 201);
+    const pub = issue.body.data.credentialId as string;
+    const iid = issue.body.data.id as string;
+
+    const byPath = await request(app).get(`/api/verifications/${pub}`);
+    assert.equal(byPath.status, 200);
+    assert.equal(byPath.body.data.credentialId, pub);
+    assert.equal(byPath.body.data.credential.id, iid);
+    assert.equal(byPath.body.data.credential.status, 'VALID');
+    assert.equal(byPath.body.data.blockchainProof.verified, true);
+
+    const byQuery = await request(app).get(`/api/verifications?credentialId=${pub}`);
+    assert.equal(byQuery.status, 200);
+    assert.equal(byQuery.body.data.credentialId, pub);
+    assert.equal(byQuery.body.data.credential.id, iid);
+  });
+
+  test('identity: unknown holder email is auto-created and FK-referenced (backend owns identity)', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const res = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Certificate',
+        title: 'Backend-Owned Identity',
+        description: 'identity-autocreate-holder test',
+        holderName: 'New Person',
+        holderEmail: 'new.person-identity@example.com',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(res.status, 201);
+    const holderId = res.body.data.holderId as string;
+    assert.ok(holderId);
+
+    const holder = await database.get<{ id: string; email: string }>(
+      'SELECT id, email FROM holders WHERE id = $1',
+      holderId,
+    );
+    assert.ok(holder, 'the backend persisted a canonical holder record');
+    assert.equal(holder.email, 'new.person-identity@example.com');
+
+    const ref = await database.get<{ n: string }>(
+      'SELECT COUNT(*)::text AS n FROM credentials WHERE id = $1 AND holder_id = $2',
+      res.body.data.id,
+      holderId,
+    );
+    assert.ok(ref, 'expected the FK-referenced credential row to exist');
+    assert.equal(ref.n, '1');
+  });
+
+  test('identity: holder who is a platform user aligns holder id with user id via email', async () => {
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Mary Identity',
+        email: 'mary.identity@example.com',
+        password: 'Password123!',
+        role: 'HOLDER',
+      });
+    assert.equal(reg.status, 201);
+    const userId = reg.body.data.user.id as string;
+
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const issue = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Certificate',
+        title: 'Unified Holder Identity',
+        description: 'identity-email-unification test',
+        holderName: 'Mary Identity',
+        holderEmail: 'mary.identity@example.com',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(issue.status, 201);
+    assert.equal(
+      issue.body.data.holderId,
+      userId,
+      'credential holder resolves to the same identity as the platform user with that email',
+    );
+  });
+
+  test('constraint: duplicate public credential ID is rejected by the database', async () => {
+    await assert.rejects(
+      database.run(
+        "INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id, issuer_id, institution_id, status, issued_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        'cred-collide-identity',
+        'SX-2F9C-A41B-8D7E',
+        'Degree',
+        'Duplicate Public Id',
+        'constraint test',
+        'Emily Rodriguez',
+        'usr-holder-001',
+        'iss-stanford-cs',
+        'inst-stanford',
+        'VALID',
+        new Date().toISOString(),
+      ),
+      (err: unknown) => (err as { code?: string }).code === '23505',
+      'expected a duplicate-key violation on credentials.credential_id',
+    );
+  });
+
+  test('constraint: foreign keys reject dangling holder/institution references', async () => {
+    await assert.rejects(
+      database.run(
+        "INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id, issuer_id, institution_id, status, issued_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        'cred-bad-holder',
+        'SX-C0DE-C0DE-C0DE',
+        'Degree',
+        'Bad Holder',
+        'constraint test',
+        'Nobody',
+        'no-such-holder',
+        'iss-stanford-cs',
+        'inst-stanford',
+        'VALID',
+        new Date().toISOString(),
+      ),
+      (err: unknown) => (err as { code?: string }).code === '23503',
+      'expected a foreign key violation on credentials.holder_id',
+    );
+
+    await assert.rejects(
+      database.run(
+        "INSERT INTO users (id, email, name, role, institution_id, password_hash, status, mfa_enabled, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        'usr-bad-inst',
+        'bad-inst@example.com',
+        'Bad Inst',
+        'INSTITUTION',
+        'no-such-institution',
+        'x',
+        'ACTIVE',
+        0,
+        new Date().toISOString(),
+      ),
+      (err: unknown) => (err as { code?: string }).code === '23503',
+      'expected a foreign key violation on users.institution_id',
+    );
+  });
+
+  test('constraint: database rejects duplicate entity ids (primary key)', async () => {
+    await assert.rejects(
+      database.run(
+        'INSERT INTO institutions (id, name, type, website, verified, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        'inst-stanford',
+        'Stanford Duplicate',
+        'university',
+        'https://example.com',
+        0,
+        'ACTIVE',
+        new Date().toISOString(),
+      ),
+      (err: unknown) => (err as { code?: string }).code === '23505',
+      'expected a duplicate-key violation on institutions pk',
+    );
+  });
+
+  test('identity: credential identity survives a backend restart (re-init) unchanged', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const issue = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Degree',
+        title: 'Persistent Identity',
+        description: 'identity-restart-persistence test',
+        holderName: 'Emily Rodriguez',
+        holderEmail: 'emily.rodriguez@example.com',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(issue.status, 201);
+    const iid = issue.body.data.id as string;
+    const pub = issue.body.data.credentialId as string;
+
+    // Simulate a backend restart: schema apply + seed guard are idempotent, so
+    // this must not touch the pre-existing canonical identities.
+    const { initDb } = await import('../db/database.js');
+    await initDb();
+
+    const cred = await request(app)
+      .get(`/api/credentials/${iid}`)
+      .set(bearer((await login('admin@securex.io')).data.token));
+    assert.equal(cred.status, 200);
+    assert.equal(cred.body.data.id, iid);
+    assert.equal(cred.body.data.credentialId, pub);
+
+    const verify = await request(app).get(`/api/verifications/${pub}`);
+    assert.equal(verify.status, 200);
+    assert.equal(verify.body.data.credentialId, pub);
+    assert.equal(verify.body.data.credential.id, iid);
+  });
+
+  test('identity: revoke lifecycle keeps identity and traces the state change', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const issue = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Degree',
+        title: 'Lifecycle Trace Credential',
+        description: 'identity-revoke-lifecycle test',
+        holderName: 'Emily Rodriguez',
+        holderEmail: 'emily.rodriguez@example.com',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(issue.status, 201);
+    const iid = issue.body.data.id as string;
+    const pub = issue.body.data.credentialId as string;
+
+    const revoke = await request(app)
+      .post(`/api/credentials/${iid}/revoke`)
+      .set(bearer(data.token));
+    assert.equal(revoke.status, 200);
+
+    const cred = await request(app)
+      .get(`/api/credentials/${iid}`)
+      .set(bearer((await login('admin@securex.io')).data.token));
+    assert.equal(cred.body.data.status, 'REVOKED');
+    assert.ok(cred.body.data.revokedAt);
+
+    const tx = await database.get<{ type: string }>(
+      'SELECT type FROM transactions WHERE credential_row_id = $1 AND type = $2 LIMIT 1',
+      iid,
+      'CREDENTIAL_REVOKED',
+    );
+    assert.ok(tx, 'revoke wrote a ledger transaction pointing at the same credential row');
+
+    const audit = await database.get<{ action: string }>(
+      'SELECT action FROM audit_events WHERE target = $1 AND action = $2 LIMIT 1',
+      iid,
+      'CREDENTIAL_REVOKED',
+    );
+    assert.ok(audit, 'audit trail captures the lifecycle transition under the canonical id');
+
+    const verify = await request(app).get(`/api/verifications/${pub}`);
+    assert.equal(verify.status, 200);
+    assert.equal(verify.body.data.credentialId, pub);
+    assert.equal(verify.body.data.status, 'REVOKED');
   });
 });

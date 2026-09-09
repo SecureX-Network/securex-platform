@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 export function randomToken(length: number): string {
   return randomBytes(Math.ceil(length / 2))
@@ -6,10 +6,24 @@ export function randomToken(length: number): string {
     .slice(0, length);
 }
 
+/**
+ * Backend-generated internal database identity for a new record.
+ *
+ * `{prefix}-{uuid v4}`: cryptographically unique, never guessed by clients,
+ * safe against collision (reinforced by the PRIMARY KEY constraint in PG).
+ * Records created at runtime use this; seeded demo records keep their
+ * canonical ids (cred-001, usr-admin-001, ...) so SIH references never break.
+ *
+ * NOTE: uuid v4 hex contains '-' too, so ids keep the `prefix-` form.
+ */
 export function entityId(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${randomToken(6)}`;
+  return `${prefix}-${randomUUID()}`;
 }
 
+/**
+ * Unique opaque identifier for a new session JWT claim. Kept in the legacy
+ * `sess-` shape because it is embedded in signed tokens, not a public identity.
+ */
 export function newJti(): string {
   return `sess-${Date.now().toString(36)}-${randomToken(8)}`;
 }
@@ -34,6 +48,16 @@ function credentialIdPart(seed: number): string {
 /** Public credential ID in SX-XXXX-XXXX-XXXX form (mirrors the mock layer). */
 export function newPublicCredentialId(seed: number): string {
   return `SX-${credentialIdPart(seed)}-${credentialIdPart(seed + 997)}-${credentialIdPart(seed + 3117)}`;
+}
+
+/**
+ * Collision-safe ledger transaction id in the wire-contract `0x...` hex form.
+ * The deterministic hex prefix keeps the format, the random tail guarantees
+ * uniqueness against the transactions PRIMARY KEY even for rapid concurrent
+ * issues/revokes of the same credential.
+ */
+export function newTxRef(): string {
+  return `0x${makeHex((Date.now() % 97_000) + 1_000, 34)}${randomToken(14)}`;
 }
 
 export function nowIso(): string {

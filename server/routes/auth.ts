@@ -2,12 +2,12 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { serverConfig } from '../config.js';
-import { get, run } from '../db/database.js';
+import { get, run, transaction } from '../db/database.js';
 import { mapUserRow, type UserRow } from '../db/mappers.js';
 import { ALL_ROLES, requireAuth, type AuthenticatedRequest, type UserRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { created, fail, ok } from '../utils/http.js';
-import { newJti, randomToken } from '../utils/ids.js';
+import { entityId, newJti } from '../utils/ids.js';
 import { writeAudit } from '../services/audit.js';
 
 const SELF_REGISTER_ROLES: UserRole[] = ['HOLDER', 'INSTITUTION', 'ISSUER', 'EMPLOYER'];
@@ -120,38 +120,62 @@ async function registerHandler(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const id = `usr-${Date.now().toString(36)}-${randomToken(6)}`;
-  await run(
-    `INSERT INTO users (id, email, name, role, institution_id, password_hash, status, mfa_enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0, ?)`,
-    id,
-    email,
-    body.name.trim(),
-    body.role,
-    body.role === 'INSTITUTION' ? `inst-${randomToken(8)}` : null,
-    bcrypt.hashSync(body.password, 10),
-    new Date().toISOString(),
-  );
+  let user: UserRow | undefined;
+  let token = '';
+  await transaction(async () => {
+    // Backend identity authority: an INSTITUTION registration creates a real
+    // institution record (backend-generated id) and links the account to it —
+    // never a fabricated institution_id pointing at a non-existent row.
+    let institutionId: string | null = null;
+    if (body.role === 'INSTITUTION') {
+      const institutionIdValue = entityId('inst');
+      await run(
+        `INSERT INTO institutions (id, name, type, website, verified, status, created_at)
+         VALUES (?, ?, 'Institution', '', 0, 'ACTIVE', ?)`,
+        institutionIdValue,
+        body.institutionName?.trim() || `${body.name.trim()}'s Institution`,
+        new Date().toISOString(),
+      );
+      institutionId = institutionIdValue;
+    }
 
-  const user = await get<UserRow>(
-    `SELECT id, email, name, role, institution_id, password_hash, created_at, last_login_at FROM users WHERE id = ?`,
-    id,
-  ) as UserRow;
+    const id = entityId('usr');
+    await run(
+      `INSERT INTO users (id, email, name, role, institution_id, password_hash, status, mfa_enabled, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0, ?)`,
+      id,
+      email,
+      body.name.trim(),
+      body.role,
+      institutionId,
+      bcrypt.hashSync(body.password, 10),
+      new Date().toISOString(),
+    );
 
-  await writeAudit({
-    action: 'USER_REGISTERED',
-    actor: user.name,
-    actorRole: user.role,
-    target: user.id,
-    targetType: 'user',
-    details: 'self-service registration',
-    ipAddress: ip,
+    user = await get<UserRow>(
+      `SELECT id, email, name, role, institution_id, password_hash, created_at, last_login_at FROM users WHERE id = ?`,
+      id,
+    ) as UserRow;
+
+    await writeAudit({
+      action: 'USER_REGISTERED',
+      actor: user.name,
+      actorRole: user.role,
+      target: user.id,
+      targetType: 'user',
+      details: body.role === 'INSTITUTION'
+        ? `self-service registration; institution=${institutionId}`
+        : 'self-service registration',
+      ipAddress: ip,
+    });
+
+    // Balance with the frontend contract: register resolves to an authenticated
+    // session so the AuthProvider can persist the user immediately.
+    const session = await signSession(user, ip);
+    token = session.token;
   });
 
-  // Balance with the frontend contract: register resolves to an authenticated
-  // session so the AuthProvider can persist the user immediately.
-  const { token } = await signSession(user, ip);
-  created(res, { user: mapUserRow(user), token });
+  created(res, { user: user ? mapUserRow(user) : undefined, token });
 }
 
 authRouter.post(

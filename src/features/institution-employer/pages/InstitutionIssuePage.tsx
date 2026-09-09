@@ -101,7 +101,7 @@ export default function InstitutionIssuePage() {
         title: form.title,
         description: form.description,
         holderName: form.holderName,
-        holderId: `holder-${Date.now()}`,
+        holderEmail: form.holderEmail,
         issuerId: 'iss-stanford-registrar',
         issuerName: 'Stanford Office of the Registrar',
         institutionId: user?.institutionId ?? 'inst-stanford',

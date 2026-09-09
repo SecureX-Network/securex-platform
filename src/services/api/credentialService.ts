@@ -8,7 +8,15 @@ export interface IssueCredentialData {
   title: string;
   description: string;
   holderName: string;
-  holderId: string;
+  holderEmail: string;
+  /**
+   * OPTIONAL reference to an existing backend holder identity. When omitted the
+   * backend resolves/generates the canonical holder identity (by email, then by
+   * the issuing platform account, then a fresh record). The browser must not
+   * fabricate persistent identities; a value that does not exist on the backend
+   * is ignored in favor of backend resolution.
+   */
+  holderId?: string;
   issuerId: string;
   issuerName: string;
   institutionId: string;
@@ -81,7 +89,7 @@ export async function issueCredential(data: IssueCredentialData): Promise<Creden
       title: data.title,
       description: data.description,
       holderName: data.holderName,
-      holderId: data.holderId,
+      holderId: data.holderId ?? `hol-${Date.now()}`,
       issuerId: data.issuerId,
       issuerName: data.issuerName,
       institutionId: data.institutionId,

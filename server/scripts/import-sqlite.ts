@@ -24,7 +24,8 @@ const sourcePath = args.find((a) => !a.startsWith('--')) ?? process.env.SQLITE_S
 const force = args.includes('--force');
 const targetUrl = process.env.DATABASE_URL;
 
-// FK-safe dependency order (issuers -> institutions, credentials -> issuers).
+// FK-safe dependency order (institutions before users/issuers/credentials;
+// holders are derived from the source credentials before credentials import).
 const TABLE_ORDER = [
   'institutions',
   'users',
@@ -99,7 +100,25 @@ async function main(): Promise<void> {
     }
 
     await client.query('BEGIN');
-    const counts: Record<string, number> = {};
+    const counts: Record<string, number> = { holders: 0 };
+
+    // The source SQLite database predates the holders table. Derive canonical
+    // holder rows from the distinct holder_id/holder_name pairs already present
+    // on copied credentials so the credentials FK is satisfied and no holder
+    // identity is invented. Synthetic emails are inherently new data (old
+    // records had no holder email column).
+    const holderRows = source
+      .prepare('SELECT DISTINCT holder_id AS id, holder_name AS name FROM credentials')
+      .all() as Array<{ id: string; name: string }>;
+    for (const holder of holderRows) {
+      if (!holder.id) continue;
+      await client.query(
+        'INSERT INTO holders (id, email, name, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (id) DO NOTHING',
+        [holder.id, `${holder.id}@imported.securex.local`, holder.name],
+      );
+      counts.holders = (counts.holders ?? 0) + 1;
+    }
+
     for (const table of TABLE_ORDER) {
       const stmt = source.prepare(`SELECT * FROM ${table}`);
       const columns = stmt.columns().map((c) => c.name);
@@ -114,6 +133,20 @@ async function main(): Promise<void> {
         await client.query(insert, columns.map((c) => sqliteValue(row[c])));
       }
       counts[table] = rows.length;
+    }
+
+    // Back-fill the FK-enforced credential_row_id pointer (new column) on every
+    // child record whose public credential_id already exists on the imported set.
+    const backfill = [
+      `UPDATE verification_history vh SET credential_row_id = c.id
+         FROM credentials c WHERE vh.credential_id = c.credential_id`,
+      `UPDATE risk_assessments ra SET credential_row_id = c.id
+         FROM credentials c WHERE ra.credential_id = c.credential_id`,
+      `UPDATE transactions t SET credential_row_id = c.id
+         FROM credentials c WHERE t.credential_id = c.credential_id`,
+    ];
+    for (const sql of backfill) {
+      await client.query(sql);
     }
     await client.query('COMMIT');
     console.log('Import complete:');
