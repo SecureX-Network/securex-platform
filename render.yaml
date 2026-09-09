@@ -1,20 +1,38 @@
-# SecureX Platform API - Render Blueprint
+# SecureX Master Blueprint - Render
 #
-# Deploys the PostgreSQL-backed Platform API as a Render Web Service with a
-# managed Render PostgreSQL database.
+# SOURCE OF TRUTH: the complete SecureX backend deploys from this ONE file,
+# connected to THIS repository (SecureX-Network/securex-platform) as a single
+# Render Blueprint.
+#
+#   securex-platform/render.yaml  (this file - master Blueprint)
+#   ├── securex-api              (Platform API, Web Service, Node - repo: this repo)
+#   ├── securex-postgres         (Render PostgreSQL - managed by the Blueprint)
+#   ├── securex-blockchain       (CTN node, Web Service, Node   - repo: securex-blockchain)
+#   └── securex-fraud-engine     (FastAPI, Web Service, Python  - repo: securex-fraud-engine)
+#
+# Each service declares a `repo:` so Render clones source from the right
+# repository. `render.yaml` files were intentionally removed from
+# securex-blockchain and securex-fraud-engine to prevent a second Blueprint
+# from claiming those resources (Render: one resource @ at most one Blueprint).
 #
 # The Vite frontend/SPA is NOT built or served here - it is deployed by Vercel
-# (app-securex.sp-net.in). Render serves only the JSON API (dist-server).
+# (app-securex.sp-net.in). Render serves only JSON APIs.
 #
-# The Blockchain and Fraud Engine are separate repos with their own render.yaml
-# files (SecureX-Network/securex-blockchain, securex-fraud-engine). Attach all
-# three repos to ONE blueprint, then, AFTER creation, set BLOCKCHAIN_API_URL
-# and FRAUD_ENGINE_URL on this service to the public *.onrender.com URLs of
-# those services (free plan services cannot receive private-network traffic).
-# Until then the /api/health Security Center shows them as DEGRADED, which is
-# expected. See docs/deployment-render.md.
+# Free-plan notes:
+#   - Blockchain/Fraud are PUBLIC Web Services: free instances cannot receive
+#     private-network traffic, and they have no persistent disks (the chain
+#     re-initialises from genesis if an instance is replaced).
+#   - Render proxies inbound traffic to $PORT (10000): the Platform API reads
+#     PORT; scripts/provision.mjs (blockchain) binds the REST API to $PORT;
+#     fraud's start command binds ${PORT:-8000}.
+#
+# Post-sync (dashboard, no repo change): set BLOCKCHAIN_API_URL and
+# FRAUD_ENGINE_URL on securex-api to the blockchain/fraud *.onrender.com URLs.
+# Until then /api/health shows the downstream services as DEGRADED - expected.
+# See docs/deployment-render.md.
 
 services:
+  # ── 1. Platform API (public) ──────────────────────────────────────────────
   - type: web
     name: securex-api
     repo: https://github.com/SecureX-Network/securex-platform
@@ -55,10 +73,58 @@ services:
         value: "true"
       # POST-SYNC (dashboard): add BLOCKCHAIN_API_URL and FRAUD_ENGINE_URL
       # pointing at the blockchain/fraud public onrender.com URLs (see
-      # docs/deployment-render.md). Confirm your free PostgreSQL database has
-      # not expired before relying on SEED_ON_BOOT.
+      # docs/deployment-render.md).
+
+  # ── 2. Blockchain (public Web Service) ────────────────────────────────────
+  - type: web
+    name: securex-blockchain
+    repo: https://github.com/SecureX-Network/securex-blockchain
+    runtime: node
+    branch: main
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: node scripts/provision.mjs && node dist/cli/index.js start -c .ctn/config.json
+    healthCheckPath: /ready
+    envVars:
+      - key: CTN_API_HOST
+        value: 0.0.0.0
+      - key: CTN_HOST
+        value: 0.0.0.0
+      - key: CTN_P2P_PORT
+        value: "3001"
+      - key: CTN_CORS_ENABLED
+        value: "true"
+      - key: CTN_ALLOWED_ORIGINS
+        value: https://app-securex.sp-net.in
+      - key: CTN_LOG_LEVEL
+        value: info
+
+  # ── 3. Fraud Engine (public Web Service) ──────────────────────────────────
+  - type: web
+    name: securex-fraud-engine
+    repo: https://github.com/SecureX-Network/securex-fraud-engine
+    runtime: python
+    branch: main
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+    healthCheckPath: /ready
+    envVars:
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENABLE_AUTH
+        value: "true"
+      - key: API_KEYS
+        generateValue: true
 
 databases:
+  # ── 4. PostgreSQL ─────────────────────────────────────────────────────────
   - name: securex-postgres
     plan: free
     region: oregon
