@@ -12,14 +12,14 @@ import {
   Skeleton,
 } from '@/components/ui';
 import type { Column } from '@/components/ui';
-import { getAllUsers } from '@/services/api/adminService';
-import { MOCK_INSTITUTIONS } from '@/services/mock';
+import { getAllInstitutions, getAllUsers } from '@/services/api/adminService';
 import { roleBadgeVariant } from '@/constants/badges';
-import type { User } from '@/types';
+import type { Institution, User } from '@/types';
 import { formatDate } from '@/utils';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
@@ -27,8 +27,12 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     let active = true;
-    getAllUsers()
-      .then((data) => active && setUsers(data))
+    Promise.all([getAllUsers(), getAllInstitutions()])
+      .then(([usersData, institutionsData]) => {
+        if (!active) return;
+        setUsers(usersData);
+        setInstitutions(institutionsData);
+      })
       .catch(() => active && setUsers([]))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -62,9 +66,6 @@ export default function AdminUsersPage() {
     });
   }, [users, search, roleFilter]);
 
-  const institutionName = (id?: string) =>
-    id ? MOCK_INSTITUTIONS.find((i) => i.id === id)?.name ?? '\u2014' : '\u2014';
-
   const columns: Column<User>[] = useMemo(
     () => [
       {
@@ -97,7 +98,11 @@ export default function AdminUsersPage() {
         key: 'institutionId',
         header: 'Institution',
         accessor: (row) => (
-          <span className="text-sm text-neutral-600">{institutionName(row.institutionId)}</span>
+          <span className="text-sm text-neutral-600">
+            {row.institutionId
+              ? institutions.find((i) => i.id === row.institutionId)?.name ?? '\u2014'
+              : '\u2014'}
+          </span>
         ),
       },
       {
@@ -145,7 +150,7 @@ export default function AdminUsersPage() {
         ),
       },
     ],
-    [],
+    [institutions],
   );
 
   if (loading) {

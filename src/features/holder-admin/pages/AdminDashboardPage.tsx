@@ -17,10 +17,16 @@ import {
   ModeIndicator,
   Skeleton,
 } from '@/components/ui';
-import { getAdminStats } from '@/services/api/adminService';
-import { MOCK_AUDIT_EVENTS, MOCK_SECURITY_ALERTS } from '@/services/mock';
+import {
+  getAdminStats,
+  getAuditEvents,
+  getSecurityAlerts,
+} from '@/services/api/adminService';
 import { severityStyles } from '@/constants/badges';
-import type { AdminStats } from '@/services/api/adminService';
+import type {
+  AdminStats,
+} from '@/services/api/adminService';
+import type { AuditEvent, SecurityAlert } from '@/types';
 import { formatDate } from '@/utils';
 
 interface StatCardProps {
@@ -54,12 +60,19 @@ function StatCard({ label, value, icon, accent, linkTo }: StatCardProps) {
 
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [alerts, setAlerts] = useState<SecurityAlert[] | null>(null);
+  const [audit, setAudit] = useState<AuditEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-    getAdminStats()
-      .then((data) => active && setStats(data))
+    Promise.all([getAdminStats(), getSecurityAlerts(), getAuditEvents()])
+      .then(([statsData, alertsData, auditData]) => {
+        if (!active) return;
+        setStats(statsData);
+        setAlerts(alertsData);
+        setAudit(auditData);
+      })
       .catch(() => active && setStats(null))
       .finally(() => active && setLoading(false));
     return () => {
@@ -67,10 +80,10 @@ export default function AdminDashboardPage() {
     };
   }, []);
 
-  const recentAlerts = MOCK_SECURITY_ALERTS.filter(
-    (a) => !['RESOLVED', 'DISMISSED'].includes(a.status),
-  ).slice(0, 4);
-  const recentAudit = MOCK_AUDIT_EVENTS.slice(0, 4);
+  const recentAlerts = (alerts ?? [])
+    .filter((a) => !['RESOLVED', 'DISMISSED'].includes(a.status))
+    .slice(0, 4);
+  const recentAudit = (audit ?? []).slice(0, 4);
 
   const statsCards: StatCardProps[] = [
     {

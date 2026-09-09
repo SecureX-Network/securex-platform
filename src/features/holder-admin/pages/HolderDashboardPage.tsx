@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Card, CredentialCard, EmptyState, ModeIndicator, Skeleton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
+import { IS_MOCK } from '@/constants';
 import { getHolderCredentials } from '@/services/api/credentialService';
 import { MOCK_NOTIFICATIONS, MOCK_VERIFICATION_HISTORY } from '@/services/mock';
 import type { Credential } from '@/types';
@@ -66,15 +67,23 @@ export default function HolderDashboardPage() {
 
   const recentCredentials = useMemo(() => credentials.slice(0, 3), [credentials]);
 
+  // Verification activity and notifications are demo-only for holders: the
+  // platform serves verification history to employers, not back to holders,
+  // and exposes no notifications contract to this frontend.
   const recentActivity = useMemo(
     () =>
-      MOCK_VERIFICATION_HISTORY.filter((v) =>
-        credentials.some((c) => c.credentialId === v.credentialId),
-      ).slice(0, 3),
+      IS_MOCK
+        ? MOCK_VERIFICATION_HISTORY.filter((v) =>
+            credentials.some((c) => c.credentialId === v.credentialId),
+          ).slice(0, 3)
+        : [],
     [credentials],
   );
 
-  const recentNotifications = useMemo(() => MOCK_NOTIFICATIONS.slice(0, 3), []);
+  const recentNotifications = useMemo(
+    () => (IS_MOCK ? MOCK_NOTIFICATIONS.slice(0, 3) : []),
+    [],
+  );
 
   const quickActions = [
     {

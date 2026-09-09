@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
@@ -14,12 +14,32 @@ import {
   Card,
   ModeIndicator,
 } from '@/components/ui';
-import { MOCK_RISK_ASSESSMENTS, MOCK_SECURITY_ALERTS } from '@/services/mock';
+import {
+  getFraudAlerts,
+  getSecurityAlerts,
+} from '@/services/api/adminService';
 import { severityStyles } from '@/constants/badges';
+import type { RiskAssessment, SecurityAlert } from '@/types';
 
 export default function AdminSecurityPage() {
+  const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
+  const [risks, setRisks] = useState<RiskAssessment[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([getSecurityAlerts(), getFraudAlerts()])
+      .then(([alertsData, risksData]) => {
+        if (!active) return;
+        setAlerts(alertsData);
+        setRisks(risksData);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const score = useMemo(() => {
-    const alerts = MOCK_SECURITY_ALERTS;
     const active = alerts.filter(
       (a) => !['RESOLVED', 'DISMISSED'].includes(a.status),
     ).length;
@@ -27,27 +47,23 @@ export default function AdminSecurityPage() {
     const highWeight = alerts.filter((a) => a.severity === 'HIGH').length;
     const raw = 100 - active * 8 - criticalWeight * 10 - highWeight * 4;
     return Math.max(0, Math.min(100, Math.round(raw)));
-  }, []);
+  }, [alerts]);
 
   const summaries = useMemo(() => {
     const bySeverity = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(
       (severity) => ({
         severity,
-        count: MOCK_SECURITY_ALERTS.filter((a) => a.severity === severity)
-          .length,
+        count: alerts.filter((a) => a.severity === severity).length,
       }),
     );
-    const active = MOCK_SECURITY_ALERTS.filter(
+    const active = alerts.filter(
       (a) => a.status === 'NEW' || a.status === 'ACKNOWLEDGED',
     ).length;
     return { bySeverity, active };
-  }, []);
+  }, [alerts]);
 
   const threatActive = summaries.active > 0;
-  const recentSuspect = useMemo(
-    () => MOCK_RISK_ASSESSMENTS.slice(0, 3),
-    [],
-  );
+  const recentSuspect = useMemo(() => risks.slice(0, 3), [risks]);
 
   const scoreTone =
     score >= 80
