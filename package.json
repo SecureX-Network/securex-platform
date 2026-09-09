@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:server": "tsx --test --test-force-exit --test-reporter=spec server/test/*.test.ts",
+    "test:all": "npm run lint && npm run typecheck && npm test && npm run test:server && npm run build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 5",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
     "server": "tsx server/index.ts",

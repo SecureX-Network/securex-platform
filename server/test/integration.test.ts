@@ -165,6 +165,21 @@ describe('SecureX Platform API integration', () => {
     assert.equal(res.body.data.credential.credentialId, 'SX-7A31-C0E4-19F6');
   });
 
+  test('VerifyPage sample credentials all resolve on the platform', async () => {
+    const samples: Array<[string, string]> = [
+      ['SX-2F9C-A41B-8D7E', 'VALID'],
+      ['SX-4B8D-6A2F-C701', 'VALID'],
+      ['SX-9C4E-2D80-5A31', 'VALID'],
+      ['SX-5A40-9F61-D2B7', 'REVOKED'],
+    ];
+    for (const [id, expected] of samples) {
+      const res = await request(app).get(`/api/verifications?credentialId=${id}`);
+      assert.equal(res.status, 200, `sample ${id} should return 200`);
+      assert.equal(res.body.data.status, expected, `sample ${id} should be ${expected}`);
+      assert.equal(res.body.data.credential.credentialId, id);
+    }
+  });
+
   test('verifications with a matching document hash report EXACT', async () => {
     const { data } = await login('admin@securex.io');
     const cred = await request(app)
