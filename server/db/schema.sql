@@ -1,0 +1,168 @@
+-- SecureX Platform API — SQLite schema
+-- Timestamps are stored as ISO-8601 UTC text so API rows match the frontend
+-- (JSON) domain types exactly and render without transformation.
+
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  email         TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  role          TEXT NOT NULL CHECK (role IN ('PUBLIC','HOLDER','INSTITUTION','ISSUER','EMPLOYER','ADMIN','SECURITY_ADMIN','NETWORK_ADMIN','AUDITOR')),
+  institution_id TEXT,
+  password_hash TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','DISABLED','PENDING')),
+  mfa_enabled   INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL,
+  last_login_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+CREATE INDEX IF NOT EXISTS idx_users_institution ON users (institution_id);
+
+CREATE TABLE IF NOT EXISTS institutions (
+  id        TEXT PRIMARY KEY,
+  name      TEXT NOT NULL,
+  type      TEXT NOT NULL,
+  website   TEXT NOT NULL,
+  verified  INTEGER NOT NULL DEFAULT 0,
+  status    TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','SUSPENDED','PENDING')),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_institutions_status ON institutions (status);
+
+CREATE TABLE IF NOT EXISTS issuers (
+  id                  TEXT PRIMARY KEY,
+  name                TEXT NOT NULL,
+  institution_id      TEXT NOT NULL REFERENCES institutions (id),
+  email               TEXT NOT NULL,
+  public_key          TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','REVOKED','SUSPENDED')),
+  credentials_issued  INTEGER NOT NULL DEFAULT 0,
+  created_at          TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_issuers_institution ON issuers (institution_id);
+
+CREATE TABLE IF NOT EXISTS credentials (
+  id                  TEXT PRIMARY KEY,
+  credential_id       TEXT NOT NULL UNIQUE,
+  type                TEXT NOT NULL,
+  title               TEXT NOT NULL,
+  description         TEXT NOT NULL DEFAULT '',
+  holder_name         TEXT NOT NULL,
+  holder_id           TEXT NOT NULL,
+  issuer_id           TEXT NOT NULL REFERENCES issuers (id),
+  institution_id      TEXT NOT NULL REFERENCES institutions (id),
+  status              TEXT NOT NULL DEFAULT 'VALID' CHECK (status IN ('VALID','INVALID','REVOKED','SUSPENDED','EXPIRED','TAMPERED','SUSPICIOUS','NOT_FOUND')),
+  issued_at           TEXT NOT NULL,
+  expires_at          TEXT,
+  revoked_at          TEXT,
+  revoked_reason      TEXT,
+  tx_hash             TEXT,
+  merkle_root         TEXT,
+  digital_signature   TEXT,
+  template_id         TEXT,
+  metadata_json       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_credentials_holder ON credentials (holder_id);
+CREATE INDEX IF NOT EXISTS idx_credentials_institution ON credentials (institution_id);
+CREATE INDEX IF NOT EXISTS idx_credentials_public_id ON credentials (credential_id);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  id          TEXT PRIMARY KEY,
+  action      TEXT NOT NULL,
+  actor       TEXT NOT NULL,
+  actor_role  TEXT NOT NULL,
+  target      TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  details     TEXT,
+  ip_address  TEXT NOT NULL DEFAULT '',
+  timestamp   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_events (timestamp);
+
+CREATE TABLE IF NOT EXISTS security_alerts (
+  id          TEXT PRIMARY KEY,
+  type        TEXT NOT NULL,
+  severity    TEXT NOT NULL CHECK (severity IN ('LOW','MEDIUM','HIGH','CRITICAL')),
+  title       TEXT NOT NULL,
+  description TEXT NOT NULL,
+  source      TEXT NOT NULL,
+  status      TEXT NOT NULL CHECK (status IN ('NEW','ACKNOWLEDGED','INVESTIGATING','RESOLVED','DISMISSED')),
+  created_at  TEXT NOT NULL,
+  resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_status ON security_alerts (status, severity);
+
+CREATE TABLE IF NOT EXISTS risk_assessments (
+  id            TEXT PRIMARY KEY,
+  credential_id TEXT NOT NULL,
+  risk_level    TEXT NOT NULL CHECK (risk_level IN ('LOW','MEDIUM','HIGH','CRITICAL')),
+  score         INTEGER NOT NULL,
+  flags_json    TEXT NOT NULL DEFAULT '[]',
+  assessed_at   TEXT NOT NULL,
+  method        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_assessed ON risk_assessments (assessed_at);
+
+CREATE TABLE IF NOT EXISTS verification_history (
+  id               TEXT PRIMARY KEY,
+  credential_id    TEXT NOT NULL,
+  credential_title TEXT NOT NULL,
+  verified_at      TEXT NOT NULL,
+  verified_by      TEXT NOT NULL,
+  result           TEXT NOT NULL,
+  method           TEXT NOT NULL DEFAULT 'MANUAL' CHECK (method IN ('QR_CODE','MANUAL','API','LINK')),
+  ip_address       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_verified_by ON verification_history (verified_by);
+CREATE INDEX IF NOT EXISTS idx_verification_time ON verification_history (verified_at);
+
+CREATE TABLE IF NOT EXISTS blocks (
+  height           INTEGER PRIMARY KEY,
+  hash             TEXT NOT NULL,
+  previous_hash    TEXT NOT NULL,
+  merkle_root      TEXT NOT NULL,
+  timestamp        TEXT NOT NULL,
+  validator        TEXT NOT NULL,
+  transaction_count INTEGER NOT NULL,
+  size             INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+  id            TEXT PRIMARY KEY,
+  block_height  INTEGER NOT NULL,
+  type          TEXT NOT NULL,
+  timestamp     TEXT NOT NULL,
+  from_address  TEXT NOT NULL,
+  to_address    TEXT NOT NULL,
+  credential_id TEXT,
+  status        TEXT NOT NULL DEFAULT 'CONFIRMED' CHECK (status IN ('CONFIRMED','PENDING','FAILED')),
+  gas_used      INTEGER,
+  confirmations INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_block ON transactions (block_height);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  jti             TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users (id),
+  issued_at       TEXT NOT NULL,
+  expires_at      TEXT NOT NULL,
+  revoked         INTEGER NOT NULL DEFAULT 0,
+  ip_address      TEXT NOT NULL DEFAULT '',
+  device          TEXT NOT NULL DEFAULT '',
+  location        TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS schema_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

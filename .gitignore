@@ -31,3 +31,6 @@ tsconfig.tsbuildinfo
 # Logs
 *.log
 npm-debug.log*
+
+# Server runtime data (node:sqlite files created by the Platform API)
+server-data/
