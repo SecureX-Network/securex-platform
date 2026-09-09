@@ -55,6 +55,11 @@ export const ROUTES = {
   ADMIN_SECURITY_ALERTS: '/admin/security/alerts',
   ADMIN_SECURITY_AUDIT: '/admin/security/audit',
   ADMIN_SETTINGS: '/admin/settings',
+  SECURITY: '/security',
+  SECURITY_OVERVIEW: '/security',
+  SECURITY_ALERTS: '/security/alerts',
+  SECURITY_EVENTS: '/security/events',
+  SECURITY_STATUS: '/security/settings',
   NOT_FOUND: '*',
 } as const;
 
@@ -100,6 +105,12 @@ export const NAVIGATION: Record<string, NavigationItem[]> = {
     { label: 'Users', path: ROUTES.ADMIN_USERS, roles: ['ADMIN', 'SECURITY_ADMIN'] },
     { label: 'Security', path: ROUTES.ADMIN_SECURITY, roles: ['ADMIN', 'SECURITY_ADMIN'] },
     { label: 'Audit Log', path: ROUTES.ADMIN_SECURITY_AUDIT, roles: ['ADMIN', 'AUDITOR'] },
+  ],
+  security: [
+    { label: 'Overview', path: ROUTES.SECURITY_OVERVIEW, roles: ['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR'] },
+    { label: 'Alerts', path: ROUTES.SECURITY_ALERTS, roles: ['ADMIN', 'SECURITY_ADMIN', 'AUDITOR'] },
+    { label: 'Events', path: ROUTES.SECURITY_EVENTS, roles: ['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR'] },
+    { label: 'Status', path: ROUTES.SECURITY_STATUS, roles: ['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR'] },
   ],
 };
 

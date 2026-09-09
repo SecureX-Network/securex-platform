@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import {
+  Activity,
   AlertTriangle,
   Building2,
   FileCode,
@@ -9,6 +10,7 @@ import {
   LayoutDashboard,
   PlusCircle,
   ScrollText,
+  Server,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -77,6 +79,11 @@ const AttackSimulationPage = lazy(() => import('@/features/explorer-simulation/p
 const AttackSimulationDetailPage = lazy(() => import('@/features/explorer-simulation/pages/AttackSimulationDetailPage'));
 const SecurityEvidencePage = lazy(() => import('@/features/explorer-simulation/pages/SecurityEvidencePage'));
 
+const SecurityOverviewPage = lazy(() => import('@/features/security-center/pages/SecurityOverviewPage'));
+const SecurityAlertsPage = lazy(() => import('@/features/security-center/pages/SecurityAlertsPage'));
+const SecurityEventsPage = lazy(() => import('@/features/security-center/pages/SecurityEventsPage'));
+const SecuritySettingsPage = lazy(() => import('@/features/security-center/pages/SecuritySettingsPage'));
+
 const institutionNavigation: NavItem[] = [
   { label: 'Dashboard', path: '/institution/dashboard', icon: LayoutDashboard, end: true },
   { label: 'Credentials', path: '/institution/credentials', icon: IdCard },
@@ -93,6 +100,7 @@ const employerNavigation: NavItem[] = [
 
 const adminNavigation: NavItem[] = [
   { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard, end: true },
+  { label: 'Security Center', path: '/security', icon: ShieldCheck },
   { label: 'Institutions', path: '/admin/institutions', icon: Building2 },
   { label: 'Issuers', path: '/admin/issuers', icon: Users },
   { label: 'Users', path: '/admin/users', icon: UserCog },
@@ -100,6 +108,14 @@ const adminNavigation: NavItem[] = [
   { label: 'Security Alerts', path: '/admin/security/alerts', icon: AlertTriangle, badge: '2' },
   { label: 'Audit Log', path: '/admin/security/audit', icon: ScrollText },
   { label: 'Settings', path: '/admin/settings', icon: Settings },
+];
+
+const securityNavigation: NavItem[] = [
+  { label: 'Overview', path: '/security', icon: LayoutDashboard, end: true },
+  { label: 'Alerts', path: '/security/alerts', icon: AlertTriangle },
+  { label: 'Events', path: '/security/events', icon: Activity },
+  { label: 'Status', path: '/security/settings', icon: Server },
+  { label: 'Fraud & Tampering', path: '/fraud', icon: ShieldAlert },
 ];
 
 function withSuspense(element: ReactNode): ReactNode {
@@ -213,6 +229,21 @@ export function AppRoutes() {
 
       {/* Fraud & Tampering */}
       <Route path="/fraud"element={withSuspense(<FraudDashboardPage />)} />
+
+      {/* Security Center */}
+      <Route
+        path="/security"
+        element={
+          <ProtectedRoute allowedRoles={['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']}>
+            <DashboardLayout navigation={securityNavigation} title="Security Center" />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={withSuspense(<SecurityOverviewPage />)} />
+        <Route path="alerts" element={withSuspense(<SecurityAlertsPage />)} />
+        <Route path="events" element={withSuspense(<SecurityEventsPage />)} />
+        <Route path="settings" element={withSuspense(<SecuritySettingsPage />)} />
+      </Route>
 
       {/* Misc */}
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
