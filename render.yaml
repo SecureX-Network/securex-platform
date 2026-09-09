@@ -1,24 +1,28 @@
-# SecureX Platform API — Render Blueprint
+# SecureX Platform API - Render Blueprint
 #
 # Deploys the PostgreSQL-backed Platform API as a Render Web Service with a
-# managed Render PostgreSQL database, plus a render-only placeholder for the
-# specialized downstream services (Blockchain + Fraud Engine live in separate
-# repos/services and are wired in via env vars).
+# managed Render PostgreSQL database.
 #
-# Apply with:  render blueprint launch  (or "New +" -> Blueprint in the dashboard)
-
-databases:
-  - name: securex-postgres
-    plan: free
-    databaseName: securex
-    user: securex
+# The Vite frontend/SPA is NOT built or served here - it is deployed by Vercel
+# (app-securex.sp-net.in). Render serves only the JSON API (dist-server).
+#
+# The Blockchain and Fraud Engine are separate repos with their own render.yaml
+# files (SecureX-Network/securex-blockchain, securex-fraud-engine). Attach all
+# three repos to ONE blueprint, then, AFTER creation, set BLOCKCHAIN_API_URL
+# and FRAUD_ENGINE_URL on this service to the public *.onrender.com URLs of
+# those services (free plan services cannot receive private-network traffic).
+# Until then the /api/health Security Center shows them as DEGRADED, which is
+# expected. See docs/deployment-render.md.
 
 services:
   - type: web
     name: securex-api
+    repo: https://github.com/SecureX-Network/securex-platform
     runtime: node
+    branch: main
     plan: free
-    buildCommand: npm install && npm run build:server && npm run build
+    region: oregon
+    buildCommand: npm install && npm run build:server
     startCommand: node dist-server/index.js
     healthCheckPath: /api/health
     domains:
@@ -32,25 +36,32 @@ services:
         value: 0.0.0.0
       - key: NODE_ENV
         value: production
-      # Never commit the shared development fallback; Render generates and
-      # persists a strong secret below for the lifetime of the service.
+      # Render generates and persists a strong secret for the lifetime of the
+      # service (the dev fallback is rejected in production by server/config.ts).
       - key: JWT_SECRET
         generateValue: true
-      # Exact allowed browser origins (Vercel frontends). No "*" is accepted.
+      - key: JWT_TTL
+        value: 8h
+      # Exact allowed browser origins (Vercel frontend). "*" is rejected.
       - key: CORS_ORIGINS
         value: https://app-securex.sp-net.in
       - key: DATABASE_URL
         fromDatabase:
           name: securex-postgres
           property: connectionString
-      # Critical: seed only the first fresh database. Existing data (including
-      # the schema_meta.seeded row) is never overwritten on re-deploys.
+      # Seeds canonical demo data only on first boot (schema_meta.seeded guard);
+      # existing data is never overwritten on re-deploys.
       - key: SEED_ON_BOOT
         value: "true"
-      # Downstream services (separate securex repos). Point these at the
-      # deployed endpoints.
-      - key: BLOCKCHAIN_API_URL
-        value: https://blockchain-securex.sp-net.in
-      - key: FRAUD_ENGINE_URL
-        value: https://fraud-securex.sp-net.in
-      # Render auto-injects PORT; HOST above keeps it bound to 0.0.0.0.
+      # POST-SYNC (dashboard): add BLOCKCHAIN_API_URL and FRAUD_ENGINE_URL
+      # pointing at the blockchain/fraud public onrender.com URLs (see
+      # docs/deployment-render.md). Confirm your free PostgreSQL database has
+      # not expired before relying on SEED_ON_BOOT.
+
+databases:
+  - name: securex-postgres
+    plan: free
+    region: oregon
+    postgresMajorVersion: "17"
+    databaseName: securex
+    user: securex
