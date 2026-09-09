@@ -330,6 +330,35 @@ describe('SecureX Platform API integration', () => {
     assert.equal(res.body.data.status, 'VALID');
   });
 
+  test('SIH flow: a newly issued credential is publicly verifiable with ledger proof', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const issue = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Degree',
+        title: 'Master of Secure Systems',
+        description: 'SIH demo issuance making the newly minted credential publicly verifiable.',
+        holderName: 'Emily Rodriguez',
+        holderId: 'usr-holder-001',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(issue.status, 201);
+    const issuedId = issue.body.data.credentialId as string;
+    assert.ok(issuedId.startsWith('SX-'));
+
+    const verify = await request(app)
+      .get(`/api/verifications?credentialId=${issuedId}`);
+    assert.equal(verify.status, 200);
+    assert.equal(verify.body.data.status, 'VALID');
+    assert.equal(verify.body.data.credential.credentialId, issuedId);
+    assert.equal(verify.body.data.blockchainProof.verified, true);
+    assert.ok(verify.body.data.blockchainProof.txHash);
+  });
+
   test('credential revoke transitions and records a ledger event', async () => {
     const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
     const res = await request(app)
