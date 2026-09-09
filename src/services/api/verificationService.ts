@@ -10,6 +10,51 @@ import {
 import type { CredentialStatus, VerificationHistory, VerificationResult } from '@/types';
 import { fetchAPI, unwrapResponse } from './client';
 
+export interface PlatformDocumentHashCheck {
+  credentialId: string;
+  suppliedHash: string;
+  anchoredHash: string | null;
+  hashMatch: boolean;
+  status: 'EXACT' | 'TAMPERED' | 'UNVERIFIABLE';
+  verifiedAt: string;
+}
+
+export type PlatformVerificationResult = VerificationResult & {
+  documentHashCheck?: PlatformDocumentHashCheck;
+  message?: string;
+};
+
+function applyMockDocumentHashCheck(
+  result: VerificationResult,
+  suppliedHash: string,
+): PlatformVerificationResult {
+  const credential = result.credential;
+  if (!credential) return result;
+  const anchoredHash = credential.merkleRoot ?? null;
+  const hashMatch =
+    anchoredHash != null && suppliedHash.toLowerCase() === anchoredHash.toLowerCase();
+  const documentHashCheck: PlatformDocumentHashCheck = {
+    credentialId: result.credentialId,
+    suppliedHash,
+    anchoredHash,
+    hashMatch,
+    status: hashMatch ? 'EXACT' : 'TAMPERED',
+    verifiedAt: new Date().toISOString(),
+  };
+  if (!hashMatch) {
+    return {
+      ...result,
+      documentHashCheck,
+      signatureVerification: { ...result.signatureVerification, valid: false },
+      fraudCheck: {
+        ...result.fraudCheck,
+        flags: [...result.fraudCheck.flags, 'Hash verification failed — document does not match the ledger record'],
+      },
+    };
+  }
+  return { ...result, documentHashCheck };
+}
+
 interface RiskProfile {
   riskLevel: VerificationResult['fraudCheck']['riskLevel'];
   score: number;
@@ -119,13 +164,19 @@ function buildMockVerification(credentialId: string): VerificationResult {
 
 export async function verifyCredential(
   credentialId: string,
-): Promise<VerificationResult> {
+  documentHash?: string,
+): Promise<PlatformVerificationResult> {
   if (IS_MOCK) {
     await mockDelay();
-    return buildMockVerification(credentialId);
+    const result = buildMockVerification(credentialId);
+    if (documentHash) {
+      return applyMockDocumentHashCheck(result, documentHash);
+    }
+    return result;
   }
-  const response = await fetchAPI<VerificationResult>(
-    `/verifications?credentialId=${encodeURIComponent(credentialId)}`,
+  const hashQuery = documentHash ? `&hash=${encodeURIComponent(documentHash)}` : '';
+  const response = await fetchAPI<PlatformVerificationResult>(
+    `/verifications?credentialId=${encodeURIComponent(credentialId)}${hashQuery}`,
   );
   return unwrapResponse(response);
 }

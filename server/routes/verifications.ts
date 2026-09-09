@@ -71,7 +71,11 @@ function recordVerification(credentialId: string, credentialTitle: string, resul
   );
 }
 
-function buildVerification(credentialId: string) {
+function isValidSha256Hex(hash: string): boolean {
+  return /^[\da-f]{64}$/i.test(hash);
+}
+
+function buildVerification(credentialId: string, documentHash?: string) {
   const row = credentialByPublicId(credentialId);
   const verifiedAt = new Date().toISOString();
 
@@ -89,6 +93,7 @@ function buildVerification(credentialId: string) {
         flags: ['Credential ID not found on distributed ledger'],
       },
       verifiedAt,
+      documentHashCheck: undefined,
     };
   }
 
@@ -100,6 +105,41 @@ function buildVerification(credentialId: string) {
   const risk = riskForStatus(row.status);
 
   recordVerification(row.credential_id, row.title, row.status, 'API');
+
+  const signatureVerification = {
+    valid: row.status !== 'TAMPERED' && row.status !== 'NOT_FOUND',
+    algorithm: 'Ed25519-SHA256',
+    verifiedAt,
+  };
+  const fraudCheck = { ...risk };
+
+  let documentHashCheck: {
+    credentialId: string;
+    suppliedHash: string;
+    anchoredHash: string | null;
+    hashMatch: boolean;
+    status: 'EXACT' | 'TAMPERED' | 'UNVERIFIABLE';
+    verifiedAt: string;
+  } | undefined;
+
+  if (documentHash) {
+    const anchoredHash = row.merkle_root;
+    const hashMatch =
+      anchoredHash != null &&
+      documentHash.toLowerCase() === anchoredHash.toLowerCase();
+    documentHashCheck = {
+      credentialId: row.credential_id,
+      suppliedHash: documentHash,
+      anchoredHash: anchoredHash ?? null,
+      hashMatch,
+      status: hashMatch ? 'EXACT' : 'TAMPERED',
+      verifiedAt,
+    };
+    if (!hashMatch) {
+      signatureVerification.valid = false;
+      fraudCheck.flags = [...fraudCheck.flags, 'Hash verification failed — document does not match the ledger record'];
+    }
+  }
 
   return {
     credentialId: row.credential_id,
@@ -117,13 +157,10 @@ function buildVerification(credentialId: string) {
       confirmations: isValid ? 26 : 0,
       timestamp: block?.timestamp,
     },
-    signatureVerification: {
-      valid: row.status !== 'TAMPERED' && row.status !== 'NOT_FOUND',
-      algorithm: 'Ed25519-SHA256',
-      verifiedAt,
-    },
-    fraudCheck: risk,
+    signatureVerification,
+    fraudCheck,
     verifiedAt,
+    documentHashCheck,
   };
 }
 
@@ -132,7 +169,11 @@ verificationsRouter.get('/', (req: Request, res: Response) => {
   if (!credentialId) {
     return fail(res, 400, 'MISSING_CREDENTIAL_ID', 'Missing required field: credentialId');
   }
-  return ok(res, buildVerification(credentialId));
+  const documentHash = typeof req.query.hash === 'string' ? req.query.hash : undefined;
+  if (documentHash && !isValidSha256Hex(documentHash)) {
+    return fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');
+  }
+  return ok(res, buildVerification(credentialId, documentHash));
 });
 
 verificationsRouter.get('/history', (req: Request, res: Response) => {
@@ -148,5 +189,9 @@ verificationsRouter.get('/search', (req: Request, res: Response) => {
   if (!credentialId) {
     return fail(res, 400, 'MISSING_CREDENTIAL_ID', 'Missing required field: credentialId');
   }
-  return ok(res, buildVerification(credentialId));
+  const documentHash = typeof req.query.hash === 'string' ? req.query.hash : undefined;
+  if (documentHash && !isValidSha256Hex(documentHash)) {
+    return fail(res, 400, 'INVALID_HASH_FORMAT', 'Invalid document hash. Expected a 64-character hexadecimal string.');
+  }
+  return ok(res, buildVerification(credentialId, documentHash));
 });

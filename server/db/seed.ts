@@ -110,15 +110,22 @@ export function seedIfEmpty(): void {
     }
 
     // ── Credentials ────────────────────────────────────────────────────
+    //
+    // The first eight public credential IDs (cred-001 .. cred-008) are aligned
+    // 1:1 with the SecureX blockchain demo credential set (REAL_DEMO_PUBLIC_CREDENTIAL_IDS):
+    // the public ID is the shared identifier between the platform and the chain,
+    // so wallet-shared QR references and the public verification portal resolve
+    // the same credential on both systems. Internal record IDs (cred-*) are
+    // platform-local.
     const credentials: Array<Array<string | number | null | undefined>> = [
       ['cred-001', 'SX-2F9C-A41B-8D7E', 'Degree', 'Bachelor of Science in Computer Science', 'Undergraduate degree in Computer Science with a concentration in artificial intelligence and human-computer interaction.', 'Emily Rodriguez', 'usr-holder-001', 'iss-stanford-cs', 'inst-stanford', 'VALID', '2024-05-18T14:30:00.000Z', null, 20001, 40001, 60001, 'tpl-bachelors', undefined],
-      ['cred-002', 'SX-8B31-7C0D-4A6E', 'Degree', 'Master of Science in Data Science', 'Graduate program covering statistical modeling, machine learning, and large-scale data infrastructure.', 'Daniel Kim', 'usr-holder-002', 'iss-berkeley-registrar', 'inst-berkeley', 'VALID', '2023-12-10T17:00:00.000Z', null, 20002, 40002, 60002, 'tpl-masters', undefined],
-      ['cred-003', 'SX-5E42-90F3-1B6C', 'Certificate', 'Professional Certificate in Machine Learning', 'Certificate of completion for the online Machine Learning Specialization series evaluated via proctored assessments.', 'Sophia Martinez', 'usr-holder-004', 'iss-stanford-online', 'inst-stanford', 'VALID', '2024-08-22T09:15:00.000Z', futureIso(730), 20003, 40003, 60003, 'tpl-certificate', undefined],
-      ['cred-004', 'SX-7A18-3D5F-90E2', 'Degree', 'Bachelor of Science in Nursing', 'Four-year baccalaureate nursing degree including clinical rotations across acute, community, and psychiatric care.', 'Priya Sharma', 'usr-holder-003', 'iss-jhu-nursing', 'inst-jhu', 'VALID', '2022-05-15T16:00:00.000Z', null, 20004, 40004, 60004, 'tpl-bachelors', undefined],
-      ['cred-005', 'SX-C0B4-62A7-5E91', 'Certificate', 'Certified Nurse Educator (CNE)', 'Professional certification validating expertise in nursing education, curriculum design, and learner assessment.', 'Priya Sharma', 'usr-holder-003', 'iss-ancc', 'inst-ancc', 'VALID', '2023-06-01T12:00:00.000Z', futureIso(650), 20005, 40005, 60005, 'tpl-certificate', undefined],
-      ['cred-006', 'SX-3E97-D120-8B4F', 'Degree', 'PhD in Electrical Engineering', 'Doctoral degree with dissertation on energy-efficient edge computing architectures for decentralized networks.', 'Robert Nakamura', 'usr-holder-005', 'iss-mit-registrar', 'inst-mit', 'VALID', '2019-06-05T15:30:00.000Z', null, 20006, 40006, 60006, 'tpl-doctoral', undefined],
-      ['cred-007', 'SX-9D61-4AC8-0F3B', 'Degree', 'Master of Business Administration', 'MBA with concentrations in strategic management and organizational leadership, completed with honors.', 'Emily Rodriguez', 'usr-holder-001', 'iss-stanford-registrar', 'inst-stanford', 'VALID', '2021-06-12T18:00:00.000Z', null, 20007, 40007, 60007, 'tpl-masters', undefined],
-      ['cred-008', 'SX-16A5-E9B2-7C40', 'Certificate', 'AWS Certified Solutions Architect \u2013 Associate', 'Associate-level certification demonstrating skill in designing distributed systems on the AWS platform.', 'Daniel Kim', 'usr-holder-002', 'iss-aws-cert', 'inst-aws', 'REVOKED', '2022-09-30T10:00:00.000Z', null, 20008, 40008, 60008, 'tpl-certificate', 'REVOKED'],
+      ['cred-002', 'SX-7A31-C0E4-19F6', 'Degree', 'Master of Science in Data Science', 'Graduate program covering statistical modeling, machine learning, and large-scale data infrastructure.', 'Daniel Kim', 'usr-holder-002', 'iss-berkeley-registrar', 'inst-berkeley', 'VALID', '2023-12-10T17:00:00.000Z', null, 20002, 40002, 60002, 'tpl-masters', undefined],
+      ['cred-003', 'SX-4B8D-6A2F-C701', 'Certificate', 'Professional Certificate in Machine Learning', 'Certificate of completion for the online Machine Learning Specialization series evaluated via proctored assessments.', 'Sophia Martinez', 'usr-holder-004', 'iss-stanford-online', 'inst-stanford', 'VALID', '2024-08-22T09:15:00.000Z', futureIso(730), 20003, 40003, 60003, 'tpl-certificate', undefined],
+      ['cred-004', 'SX-9C4E-2D80-5A31', 'Degree', 'Bachelor of Science in Nursing', 'Four-year baccalaureate nursing degree including clinical rotations across acute, community, and psychiatric care.', 'Priya Sharma', 'usr-holder-003', 'iss-jhu-nursing', 'inst-jhu', 'VALID', '2022-05-15T16:00:00.000Z', null, 20004, 40004, 60004, 'tpl-bachelors', undefined],
+      ['cred-005', 'SX-3A17-B9F2-6D48', 'Certificate', 'Certified Nurse Educator (CNE)', 'Professional certification validating expertise in nursing education, curriculum design, and learner assessment.', 'Priya Sharma', 'usr-holder-003', 'iss-ancc', 'inst-ancc', 'VALID', '2023-06-01T12:00:00.000Z', futureIso(650), 20005, 40005, 60005, 'tpl-certificate', undefined],
+      ['cred-006', 'SX-8E50-1C73-A9B4', 'Degree', 'PhD in Electrical Engineering', 'Doctoral degree with dissertation on energy-efficient edge computing architectures for decentralized networks.', 'Robert Nakamura', 'usr-holder-005', 'iss-mit-registrar', 'inst-mit', 'VALID', '2019-06-05T15:30:00.000Z', null, 20006, 40006, 60006, 'tpl-doctoral', undefined],
+      ['cred-007', 'SX-6D29-B8E5-0F4C', 'Degree', 'Master of Business Administration', 'MBA with concentrations in strategic management and organizational leadership, completed with honors.', 'Emily Rodriguez', 'usr-holder-001', 'iss-stanford-registrar', 'inst-stanford', 'VALID', '2021-06-12T18:00:00.000Z', null, 20007, 40007, 60007, 'tpl-masters', undefined],
+      ['cred-008', 'SX-5A40-9F61-D2B7', 'Certificate', 'AWS Certified Solutions Architect \u2013 Associate', 'Associate-level certification demonstrating skill in designing distributed systems on the AWS platform.', 'Daniel Kim', 'usr-holder-002', 'iss-aws-cert', 'inst-aws', 'REVOKED', '2022-09-30T10:00:00.000Z', null, 20008, 40008, 60008, 'tpl-certificate', 'REVOKED'],
       ['cred-009', 'SX-4B8F-C1D6-29A3', 'Certificate', 'IEEE Certified Software Development Professional (CSDP)', 'Professional certification for senior software engineers covering software architecture, process, and quality.', 'Monica Patel', 'usr-holder-009', 'iss-ieee-portfolio', 'inst-ieee', 'EXPIRED', '2021-11-20T14:00:00.000Z', '2024-11-20T23:59:59.000Z', 20009, 40009, 60009, 'tpl-certificate', 'EXPIRED'],
       ['cred-010', 'SX-F7C3-58E0-1D9A', 'Certificate', 'Professional Certificate in Project Management', 'Certificate covering PMI-aligned project management practices, earned through an online executive program.', 'James O\u2019Brien', 'usr-holder-006', 'iss-gatech-registrar', 'inst-gatech', 'SUSPENDED', '2023-03-15T11:00:00.000Z', null, 20010, 40010, 60010, 'tpl-certificate', 'SUSPENDED'],
       ['cred-011', 'SX-2A64-9B7E-50CD', 'Degree', 'Bachelor of Arts in Economics', 'Undergraduate degree in economics with a minor in data analytics and quantitative policy analysis.', 'Sarah Kim', 'usr-holder-007', 'iss-berkeley-registrar', 'inst-berkeley', 'VALID', '2020-05-20T16:30:00.000Z', null, 20011, 40011, 60011, 'tpl-bachelors', undefined],
@@ -210,7 +217,7 @@ export function seedIfEmpty(): void {
     const riskAssessments: Array<[string, string, string, number, string[], string, string]> = [
       ['risk-001', 'SX-83E1-0FA6-4B92', 'HIGH', 82, ['Anomalous issuance pattern detected', 'Issuer signing key flagged for rotation'], 'ML_ENSEMBLE', iso(0, 2)],
       ['risk-002', 'SX-EF4B-390A-7C58', 'CRITICAL', 95, ['Digital signature mismatch', 'Merkle proof verification failed'], 'SIGNATURE_LOCALITY', iso(0, 3)],
-      ['risk-003', 'SX-16A5-E9B2-7C40', 'MEDIUM', 45, ['Credential revoked by issuer'], 'LEDGER_STATE', iso(1, 6)],
+      ['risk-003', 'SX-5A40-9F61-D2B7', 'MEDIUM', 45, ['Credential revoked by issuer'], 'LEDGER_STATE', iso(1, 6)],
       ['risk-004', 'SX-4B8F-C1D6-29A3', 'MEDIUM', 38, ['Credential has exceeded validity period'], 'VALIDITY_SCAN', iso(2, 1)],
     ];
     for (const r of riskAssessments) {
@@ -223,11 +230,11 @@ export function seedIfEmpty(): void {
     // ── Verification history ───────────────────────────────────────────
     const history: Array<Array<string | number | null>> = [
       ['vh-001', 'SX-2F9C-A41B-8D7E', 'Bachelor of Science in Computer Science', iso(0, 3), 'Marcus Johnson', 'VALID', 'QR_CODE', '192.168.40.12'],
-      ['vh-002', 'SX-9D61-4AC8-0F3B', 'Master of Business Administration', iso(0, 11), 'Northwind Bank HR', 'VALID', 'MANUAL', '10.2.14.88'],
+      ['vh-002', 'SX-6D29-B8E5-0F4C', 'Master of Business Administration', iso(0, 11), 'Northwind Bank HR', 'VALID', 'MANUAL', '10.2.14.88'],
       ['vh-003', 'SX-F7C3-58E0-1D9A', 'Professional Certificate in Project Management', iso(1, 5), 'Accenture Talent Team', 'SUSPENDED', 'API', null],
-      ['vh-004', 'SX-16A5-E9B2-7C40', 'AWS Certified Solutions Architect \u2013 Associate', iso(2, 2), 'Marcus Johnson', 'REVOKED', 'API', '192.168.40.12'],
+      ['vh-004', 'SX-5A40-9F61-D2B7', 'AWS Certified Solutions Architect \u2013 Associate', iso(2, 2), 'Marcus Johnson', 'REVOKED', 'API', '192.168.40.12'],
       ['vh-005', 'SX-83E1-0FA6-4B92', 'AWS Certified Developer \u2013 Associate', iso(3), 'Riverbend Health HR', 'SUSPICIOUS', 'LINK', null],
-      ['vh-006', 'SX-7A18-3D5F-90E2', 'Bachelor of Science in Nursing', iso(4, 6), 'Riverbend Health HR', 'VALID', 'QR_CODE', '10.5.70.3'],
+      ['vh-006', 'SX-9C4E-2D80-5A31', 'Bachelor of Science in Nursing', iso(4, 6), 'Riverbend Health HR', 'VALID', 'QR_CODE', '10.5.70.3'],
     ];
     for (const h of history) {
       run(
@@ -256,14 +263,14 @@ export function seedIfEmpty(): void {
     // ── Audit events ───────────────────────────────────────────────────
     const auditEvents: Array<Array<string | null>> = [
       ['aud-001', 'CREDENTIAL_ISSUED', 'Sarah Chen', 'INSTITUTION', 'cred-015', 'credential', 'institution=inst-stanford; credential=SX-EF4B-390A-7C58; via web securex issue flow', '10.0.1.24', iso(7, 2)],
-      ['aud-002', 'CREDENTIAL_REVOKED', 'Sarah Chen', 'INSTITUTION', 'cred-008', 'credential', 'institution=inst-aws; credential=SX-16A5-E9B2-7C40; reason=compliance audit', '10.0.1.24', iso(200, 4)],
+      ['aud-002', 'CREDENTIAL_REVOKED', 'Sarah Chen', 'INSTITUTION', 'cred-008', 'credential', 'institution=inst-aws; credential=SX-5A40-9F61-D2B7; reason=compliance audit', '10.0.1.24', iso(200, 4)],
       ['aud-003', 'USER_LOGIN', 'Marcus Johnson', 'EMPLOYER', 'usr-employer-001', 'user', 'device=macOS Chrome; region=us-west', '192.168.40.12', iso(0, 6)],
       ['aud-004', 'INSTITUTION_REGISTERED', 'Alex Morgan', 'ADMIN', 'inst-city', 'institution', 'institution=inst-city; verification documents submitted for review', '10.0.8.10', iso(12, 1)],
       ['aud-005', 'SECURITY_ALERT_ACKNOWLEDGED', 'Jamie Rivers', 'SECURITY_ADMIN', 'alrt-003', 'alert', 'source=10.0.4.77; rate limiting applied', '10.0.8.22', iso(1, 2)],
       ['aud-006', 'SYSTEM_CONFIG_CHANGE', 'Taylor Brooks', 'NETWORK_ADMIN', 'validator-04', 'node', 'block propagation timeout updated to 4.2s', '10.0.8.33', iso(1, 9)],
       ['aud-007', 'CREDENTIAL_VERIFIED', 'Verification Engine', 'EMPLOYER', 'cred-001', 'credential', 'institution=inst-stanford; credential=SX-2F9C-A41B-8D7E; method=QR_CODE', '192.168.40.12', iso(0, 3)],
       ['aud-008', 'ISSUER_STATUS_CHANGED', 'Alex Morgan', 'ADMIN', 'iss-gca', 'issuer', 'institution=inst-gca; status transitioned ACTIVE\u2192SUSPENDED after fraud review', '10.0.8.10', iso(30, 5)],
-      ['aud-009', 'CREDENTIAL_ISSUED', 'Certification Office', 'INSTITUTION', 'cred-005', 'credential', 'institution=inst-ancc; credential=SX-C0B4-62A7-5E91; renewal issuance', '10.0.1.90', iso(650, 2)],
+      ['aud-009', 'CREDENTIAL_ISSUED', 'Certification Office', 'INSTITUTION', 'cred-005', 'credential', 'institution=inst-ancc; credential=SX-3A17-B9F2-6D48; renewal issuance', '10.0.1.90', iso(650, 2)],
     ];
     for (const e of auditEvents) {
       run(

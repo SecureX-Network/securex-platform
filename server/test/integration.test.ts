@@ -158,6 +158,46 @@ describe('SecureX Platform API integration', () => {
     assert.equal(res.body.data.blockchainProof.verified, false);
   });
 
+  test('wallet-shared public credential IDs resolve on the platform', async () => {
+    const res = await request(app).get('/api/verifications?credentialId=SX-7A31-C0E4-19F6');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.status, 'VALID');
+    assert.equal(res.body.data.credential.credentialId, 'SX-7A31-C0E4-19F6');
+  });
+
+  test('verifications with a matching document hash report EXACT', async () => {
+    const { data } = await login('admin@securex.io');
+    const cred = await request(app)
+      .get('/api/credentials/SX-2F9C-A41B-8D7E')
+      .set(bearer(data.token));
+    const anchored = cred.body.data.merkleRoot as string;
+    const res = await request(app)
+      .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${anchored}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.documentHashCheck.status, 'EXACT');
+    assert.equal(res.body.data.documentHashCheck.hashMatch, true);
+    assert.equal(res.body.data.signatureVerification.valid, true);
+  });
+
+  test('verifications with a mismatched document hash flag a tamper check', async () => {
+    const res = await request(app)
+      .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${'f'.repeat(64)}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.documentHashCheck.status, 'TAMPERED');
+    assert.equal(res.body.data.documentHashCheck.hashMatch, false);
+    assert.equal(res.body.data.signatureVerification.valid, false);
+    assert.ok(res.body.data.fraudCheck.flags.some(
+      (f: string) => f.indexOf('hash verification failed') !== -1 || f.indexOf('Hash verification failed') !== -1,
+    ));
+  });
+
+  test('verifications reject a malformed document hash', async () => {
+    const res = await request(app)
+      .get('/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=notahexhash');
+    assert.equal(res.status, 400);
+    assert.equal(res.body.errorCode, 'INVALID_HASH_FORMAT');
+  });
+
   test('verification history lists seeded records', async () => {
     const res = await request(app).get('/api/verifications/history?employerId=marcus.johnson@acme.com');
     assert.equal(res.status, 200);
@@ -278,12 +318,12 @@ describe('SecureX Platform API integration', () => {
   test('credential revoke transitions and records a ledger event', async () => {
     const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
     const res = await request(app)
-      .post('/api/credentials/SX-C0B4-62A7-5E91/revoke')
+      .post('/api/credentials/SX-3A17-B9F2-6D48/revoke')
       .set(bearer(data.token));
     assert.equal(res.status, 200);
 
     const cred = await request(app)
-      .get('/api/credentials/SX-C0B4-62A7-5E91')
+      .get('/api/credentials/SX-3A17-B9F2-6D48')
       .set(bearer((await login('admin@securex.io')).data.token));
     assert.equal(cred.body.data.status, 'REVOKED');
     assert.ok(cred.body.data.revokedAt);

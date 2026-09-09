@@ -6,12 +6,12 @@ import VerifyCredentialPage from '@/features/public-verification/pages/VerifyCre
 import type { VerificationView } from '@/features/holder-admin/services/holderAdminService';
 import { ApiError } from '@/services/api/client';
 
-vi.mock('@/features/holder-admin/services/holderAdminService', () => ({
-  verifyRealCredential: vi.fn(),
+vi.mock('@/features/public-verification/services/publicVerificationService', () => ({
+  verifyPublicCredential: vi.fn(),
 }));
 
-import { verifyRealCredential } from '@/features/holder-admin/services/holderAdminService';
-const viewMock = vi.mocked(verifyRealCredential);
+import { verifyPublicCredential } from '@/features/public-verification/services/publicVerificationService';
+const viewMock = vi.mocked(verifyPublicCredential);
 
 const validView: VerificationView = {
   status: 'VALID',

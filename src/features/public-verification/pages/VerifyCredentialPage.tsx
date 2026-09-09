@@ -12,7 +12,7 @@ import { Button, Card, Input, Spinner, ErrorState } from '@/components/ui';
 import { RealVerificationResult } from '@/features/public-verification/components/RealVerificationResult';
 import { ROUTES } from '@/constants';
 import { ApiError } from '@/services/api/client';
-import { verifyRealCredential } from '@/features/holder-admin/services/holderAdminService';
+import { verifyPublicCredential } from '@/features/public-verification/services/publicVerificationService';
 import type { VerificationView } from '@/features/holder-admin/services/holderAdminService';
 import { normalizeCredentialInput } from '@/utils/publicCredentialId';
 
@@ -57,7 +57,7 @@ export default function VerifyCredentialPage() {
       setLoading(true);
       setError(null);
       setResult(null);
-      verifyRealCredential(normalizedId, documentHash)
+      verifyPublicCredential(normalizedId, documentHash)
         .then((data) => {
           setResult(data);
           setHashChecked(Boolean(documentHash));
@@ -78,7 +78,7 @@ export default function VerifyCredentialPage() {
     if (!normalizedId || !hash) return;
     setHashBusy(true);
     try {
-      const data = await verifyRealCredential(normalizedId, hash);
+      const data = await verifyPublicCredential(normalizedId, hash);
       setResult(data);
       setHashChecked(true);
       setError(null);
