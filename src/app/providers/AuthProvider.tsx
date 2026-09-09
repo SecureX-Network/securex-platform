@@ -140,8 +140,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         persistSession(nextUser, `${nextUser.id}:${Date.now()}:mock-token`);
         return;
       }
-      const { user: registeredUser } = await apiRegister(data);
-      persistSession(registeredUser, `token-${registeredUser.id}`);
+      const { user: registeredUser, token } = await apiRegister(data);
+      persistSession(registeredUser, token);
     },
     [persistSession],
   );

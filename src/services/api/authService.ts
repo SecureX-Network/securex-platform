@@ -43,7 +43,7 @@ export async function login(
   return unwrapResponse(response);
 }
 
-export async function register(data: RegisterData): Promise<{ user: User }> {
+export async function register(data: RegisterData): Promise<AuthResult> {
   if (IS_MOCK) {
     await mockDelay();
     const user: User = {
@@ -53,9 +53,9 @@ export async function register(data: RegisterData): Promise<{ user: User }> {
       role: data.role,
       createdAt: new Date().toISOString(),
     };
-    return { user };
+    return { user, token: `${user.id}:${Date.now()}:mock-token` };
   }
-  const response = await fetchAPI<{ user: User }>('/auth/register', {
+  const response = await fetchAPI<AuthResult>('/auth/register', {
     method: 'POST',
     body: JSON.stringify(data),
   });

@@ -1,6 +1,6 @@
 import { IS_MOCK } from '@/constants';
 import { mockDelay } from '@/services/mock';
-import { ApiError } from '@/services/api/client';
+import { fetchAPI, unwrapResponse } from '@/services/api/client';
 import {
   getSecurityAlerts as getAdminSecurityAlerts,
   getAuditEvents as getAdminAuditEvents,
@@ -157,10 +157,10 @@ function buildActivityFromAudit(event: AuditEvent): SecurityActivityItem {
 //
 // Lists backed by existing backend endpoints are reused from the shared admin
 // service layer (Platform API): /admin/security/alerts, /admin/security/audit
-// and /admin/security/fraud. Aggregates with no verified backend contract in
-// this repository (overview dashboard, service health, active sessions,
-// credential-integrity summary, alert lifecycle mutations) deliberately throw
-// a documented ApiError in REAL mode instead of inventing a fake endpoint.
+// and /admin/security/fraud. Aggregates (overview, service health, sessions,
+// credential-integrity) and the alert lifecycle mutation are served by the
+// Platform API under /admin/security/. The Explorer simulation is the only
+// surface with no backend contract, so it stays mock-only.
 // ---------------------------------------------------------------------------
 
 export async function getSecurityAlerts(): Promise<SecurityAlert[]> {
@@ -212,10 +212,8 @@ export async function getSecurityOverview(): Promise<SecurityOverviewData> {
     };
   }
 
-  throw new ApiError(
-    'Security Center overview aggregate endpoint contract is not available to this frontend. Alerts, audit activity and risk assessments are available through the existing admin API.',
-    503,
-  );
+  const response = await fetchAPI<SecurityOverviewData>('/admin/security/overview');
+  return unwrapResponse(response);
 }
 
 export async function getServiceHealth(): Promise<SecurityServiceHealth[]> {
@@ -227,10 +225,8 @@ export async function getServiceHealth(): Promise<SecurityServiceHealth[]> {
     }));
   }
 
-  throw new ApiError(
-    'Security Center service health endpoint contract is not available to this frontend.',
-    503,
-  );
+  const response = await fetchAPI<SecurityServiceHealth[]>('/admin/security/service-health');
+  return unwrapResponse(response);
 }
 
 export async function getActiveSessions(): Promise<SecuritySession[]> {
@@ -239,10 +235,8 @@ export async function getActiveSessions(): Promise<SecuritySession[]> {
     return MOCK_SESSIONS;
   }
 
-  throw new ApiError(
-    'Security Center active sessions endpoint contract is not available to this frontend.',
-    503,
-  );
+  const response = await fetchAPI<SecuritySession[]>('/admin/security/sessions');
+  return unwrapResponse(response);
 }
 
 export async function getCredentialIntegrityStats(): Promise<CredentialIntegrityStats> {
@@ -251,23 +245,21 @@ export async function getCredentialIntegrityStats(): Promise<CredentialIntegrity
     return computeCredentialStats();
   }
 
-  throw new ApiError(
-    'Security Center credential-integrity aggregate endpoint contract is not available to this frontend.',
-    503,
-  );
+  const response = await fetchAPI<CredentialIntegrityStats>('/admin/security/credential-integrity');
+  return unwrapResponse(response);
 }
 
 export async function updateAlertStatus(
-  _alertId: string,
-  _status: SecurityAlert['status'],
+  alertId: string,
+  status: SecurityAlert['status'],
 ): Promise<void> {
   if (IS_MOCK) {
     await mockDelay();
     return;
   }
 
-  throw new ApiError(
-    'Security Center alert lifecycle mutation endpoint contract is not available to this frontend.',
-    503,
-  );
+  await fetchAPI<void>(`/admin/security/alerts/${alertId}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  });
 }
