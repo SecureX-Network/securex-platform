@@ -40,7 +40,7 @@ services:
     branch: main
     plan: free
     region: oregon
-    buildCommand: npm install && npm run build:server
+    buildCommand: npm install --include=dev && npm run build:server
     startCommand: node dist-server/index.js
     healthCheckPath: /api/health
     domains:
