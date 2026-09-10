@@ -17,6 +17,10 @@ import type {
   ApiVerificationStatus,
   ApiVerifyResult,
 } from '@/features/holder-admin/types/backend';
+import type {
+  ApiTransaction,
+  ApiTransactionType,
+} from '@/features/explorer-simulation/types/backend';
 import {
   REAL_DEMO_CREDENTIAL_IDS,
   REAL_DEMO_PUBLIC_CREDENTIAL_IDS,
@@ -194,13 +198,13 @@ export async function getRealIssuers(): Promise<Issuer[]> {
     const { getAllIssuers } = await import('@/services/api/adminService');
     return getAllIssuers();
   }
-  const issuers = await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/issuers'));
+  const issuers = await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/state/issuers'));
   return Promise.all(
     issuers.map(async (issuer) => {
       let count = 0;
       try {
         const history = await fetchBlockchainAPI<ApiIssuerHistory>(
-          `/issuers/${encodeURIComponent(issuer.issuerId)}/history`,
+          `/state/issuers/${encodeURIComponent(issuer.issuerId)}/history`,
         );
         count = history.credentials.length;
       } catch {
@@ -241,49 +245,32 @@ export async function updateRealIssuer(
 }
 
 /**
- * Admin issuer lifecycle backed by the real chain: suspends/activates an
- * issuer's on-chain status (backend-endpoint POST /issuers/:id/suspend|
- * activate). The backend independently authorizes the admin principal; the
- * frontend merely forwards the configured principal token.
+ * Admin issuer lifecycle backed by the real chain: there is NO dedicated
+ * issuer suspend/activate endpoint or transaction type in the SecureX backend.
+ * ISSUER_UPDATE only carries name/metadata and issuer status is governed by the
+ * chain, so a browser cannot mutate an issuer's on-chain status. We surface
+ * this honestly as an ApiError instead of calling a non-existent endpoint or
+ * fabricating success. The page reflects the authoritative state read
+ * (GET /state/issuers) which already includes the real issuer.status.
  */
 export async function suspendRealIssuer(
-  issuerId: string,
-  reason?: string,
+  _issuerId: string,
+  _reason?: string,
 ): Promise<ApiMutationReceipt> {
-  const receipt = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiMutationReceipt>(
-      `/issuers/${encodeURIComponent(issuerId)}/suspend`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ reason: reason ?? 'suspended by admin' }),
-      },
-    ),
+  throw new ApiError(
+    'The SecureX backend does not expose an issuer suspension endpoint; issuer status is read-only from the admin UI.',
+    400,
   );
-  if (!receipt.submitted) {
-    throw new ApiError('The issuer suspension was rejected by the backend.', 400);
-  }
-  return receipt;
 }
 
 export async function activateRealIssuer(
-  issuerId: string,
-  reason?: string,
+  _issuerId: string,
+  _reason?: string,
 ): Promise<ApiMutationReceipt> {
-  const receipt = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiMutationReceipt>(
-      `/issuers/${encodeURIComponent(issuerId)}/activate`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ reason: reason ?? 'activated by admin' }),
-      },
-    ),
+  throw new ApiError(
+    'The SecureX backend does not expose an issuer activation endpoint; issuer status is read-only from the admin UI.',
+    400,
   );
-  if (!receipt.submitted) {
-    throw new ApiError('The issuer activation was rejected by the backend.', 400);
-  }
-  return receipt;
 }
 
 /**
@@ -296,12 +283,12 @@ export async function activateRealIssuer(
  */
 export async function getRealIssuer(id: string): Promise<Issuer> {
   const issuer = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiIssuer>(`/issuers/${encodeURIComponent(id)}`),
+    fetchBlockchainAPI<ApiIssuer>(`/state/issuers/${encodeURIComponent(id)}`),
   );
   let count = 0;
   try {
     const history = await fetchBlockchainAPI<ApiIssuerHistory>(
-      `/issuers/${encodeURIComponent(id)}/history`,
+      `/state/issuers/${encodeURIComponent(id)}/history`,
     );
     count = history.credentials.length;
   } catch {
@@ -313,7 +300,7 @@ export async function getRealIssuer(id: string): Promise<Issuer> {
 export async function getRealIssuerHistory(id: string): Promise<ApiIssuerHistory> {
   return runWithRetry(() =>
     fetchBlockchainAPI<ApiIssuerHistory>(
-      `/issuers/${encodeURIComponent(id)}/history`,
+      `/state/issuers/${encodeURIComponent(id)}/history`,
     ),
   );
 }
@@ -340,14 +327,14 @@ export async function getRealCredentials(): Promise<Credential[]> {
     const { getCredentials } = await import('@/services/api/credentialService');
     return getCredentials();
   }
-  const issuers = await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/issuers'));
+  const issuers = await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/state/issuers'));
   const issuerName = new Map(issuers.map((i) => [i.issuerId, i.name]));
 
   const out: Credential[] = [];
   for (const id of REAL_DEMO_CREDENTIAL_IDS) {
     try {
       const cred = await fetchBlockchainAPI<ApiCredential>(
-        `/credentials/${encodeURIComponent(id)}`,
+        `/state/credentials/${encodeURIComponent(id)}`,
       );
       out.push(mapApiCredential(cred, issuerName.get(cred.issuerId)));
     } catch {
@@ -372,7 +359,7 @@ export async function getHolderCredentialsView(holderId: string): Promise<Creden
   if (ownedIds.length === 0) return [];
 
   const issuerName = new Map(
-    (await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/issuers')))
+    (await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/state/issuers')))
       .map((i) => [i.issuerId, i.name]),
   );
 
@@ -380,7 +367,7 @@ export async function getHolderCredentialsView(holderId: string): Promise<Creden
   for (const id of ownedIds) {
     try {
       const cred = await fetchBlockchainAPI<ApiCredential>(
-        `/credentials/${encodeURIComponent(id)}`,
+        `/state/credentials/${encodeURIComponent(id)}`,
       );
       out.push(mapApiCredential(cred, issuerName.get(cred.issuerId)));
     } catch {
@@ -410,12 +397,12 @@ export async function getRealCredential(
     );
   }
   const cred = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiCredential>(`/credentials/${encodeURIComponent(id)}`),
+    fetchBlockchainAPI<ApiCredential>(`/state/credentials/${encodeURIComponent(id)}`),
   );
   let issuerName: string | undefined;
   try {
     const issuer = await fetchBlockchainAPI<ApiIssuer>(
-      `/issuers/${encodeURIComponent(cred.issuerId)}`,
+      `/state/issuers/${encodeURIComponent(cred.issuerId)}`,
     );
     issuerName = issuer.name;
   } catch {
@@ -430,7 +417,7 @@ export async function getRealCredentialHistory(
   if (getDataSourceMode() === 'DEMO') return [];
   return runWithRetry(() =>
     fetchBlockchainAPI<ApiCredentialHistoryEntry[]>(
-      `/credentials/${encodeURIComponent(id)}/history`,
+      `/state/credentials/${encodeURIComponent(id)}/history`,
     ),
   );
 }
@@ -439,18 +426,91 @@ export async function getRealCredentialHistory(
 // Credential lifecycle mutations (real transaction pipeline)
 // ---------------------------------------------------------------------------
 //
-// These submit real lifecycle transactions to the backend's hardened V2
-// validation path. IMPORTANT (verified against a live node): suspend on an
-// ACTIVE credential is accepted via the anonymous/validator path and commits,
-// but reinstate/revoke/reissue can be rejected with INVALID_SIGNATURE because
-// the hardened path requires the *issuer's* signing key (V2), which a browser
-// caller does not hold. Configure CTN_AUTH_TOKENS / a privileged shared-secret
-// principal at the backend to authorize these in a secure deployment. The
-// functions below surface backend rejections honestly (throw on submitted:false)
-// rather than fabricating success.
+// The SecureX blockchain V3 API has NO dedicated credential lifecycle endpoints
+// (POST /credentials/:id/suspend|reinstate|revoke|reissue do not exist). Every
+// lifecycle transition is submitted as a signed transaction via POST
+// /transactions following the existing ApiTransaction contract (see
+// src/features/explorer-simulation/types/backend.ts and the backend's
+// tx-validator). The chain requires a valid Ed25519 signature from a registered
+// issuer or validator key, which a browser caller does not hold, so an unsigned
+// submission is rejected by the backend (INVALID_SENDER / MISSING_SIGNATURE).
+// We build the contract-shaped transaction and surface that authoritative
+// rejection honestly (throw on non-2xx / submitted:false) rather than
+// fabricating success. In a secure deployment lifecycle transitions must be
+// signed and submitted by an issuer-side service that holds the signing key.
+
+const TRANSACTION_PROTOCOL_VERSION = '2.0';
+const TRANSACTION_VERSION = 2;
+
+function createTransactionId(): string {
+  if (
+    typeof globalThis.crypto !== 'undefined' &&
+    typeof globalThis.crypto.randomUUID === 'function'
+  ) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `tx-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export interface LifecycleInput {
   reason?: string;
+}
+
+interface TransactionSubmitResponse {
+  submitted: boolean;
+  id: string;
+  status: string;
+}
+
+const lifecycleTypes: Record<'suspend' | 'reinstate' | 'revoke', ApiTransactionType> = {
+  suspend: 'CREDENTIAL_SUSPEND',
+  reinstate: 'CREDENTIAL_REINSTATE',
+  revoke: 'CREDENTIAL_REVOKE',
+};
+
+/**
+ * Build a transaction body per the existing ApiTransaction contract and submit
+ * it to POST /transactions. The sender/signature fields cannot be produced by a
+ * browser caller (no signing key is held client-side); the backend remains the
+ * authority and its rejection is surfaced as an ApiError. The success envelope
+ * only carries { submitted, id, status }, so the receipt is completed from the
+ * transaction we constructed.
+ */
+function submitLifecycleTransaction(
+  type: ApiTransactionType,
+  payload: Record<string, unknown>,
+): Promise<ApiMutationReceipt> {
+  const tx: ApiTransaction = {
+    protocolVersion: TRANSACTION_PROTOCOL_VERSION,
+    transactionVersion: TRANSACTION_VERSION,
+    id: createTransactionId(),
+    type,
+    timestamp: new Date().toISOString(),
+    sender: '',
+    nonce: 0,
+    payload,
+    signature: '',
+  };
+
+  return runWithRetry(() =>
+    fetchBlockchainAPI<TransactionSubmitResponse>('/transactions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(tx),
+    }),
+  ).then((data): ApiMutationReceipt => {
+    if (!data.submitted) {
+      throw new ApiError('The lifecycle transition was rejected by the backend.', 400);
+    }
+    return {
+      submitted: true,
+      id: data.id,
+      type: tx.type,
+      sender: tx.sender,
+      nonce: tx.nonce,
+      status: 'PENDING',
+    };
+  });
 }
 
 async function lifecycleMutation(
@@ -458,20 +518,11 @@ async function lifecycleMutation(
   action: 'suspend' | 'reinstate' | 'revoke',
   input: LifecycleInput,
 ): Promise<ApiMutationReceipt> {
-  const receipt = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiMutationReceipt>(
-      `/credentials/${encodeURIComponent(id)}/${action}`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ reason: input.reason ?? action }),
-      },
-    ),
-  );
-  if (!receipt.submitted) {
-    throw new ApiError('The lifecycle transition was rejected by the backend.', 400);
+  const payload: Record<string, unknown> = { credentialId: id };
+  if (input.reason) {
+    payload.reason = input.reason;
   }
-  return receipt;
+  return submitLifecycleTransaction(lifecycleTypes[action], payload);
 }
 
 export async function suspendRealCredential(
@@ -520,20 +571,15 @@ export async function reissueRealCredential(
     await mockDelay();
     return { submitted: true, id, type: 'CREDENTIAL_REISSUE', sender: 'demo', nonce: 1, status: 'PENDING' };
   }
-  const receipt = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiMutationReceipt>(
-      `/credentials/${encodeURIComponent(id)}/reissue`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(input),
-      },
-    ),
-  );
-  if (!receipt.submitted) {
-    throw new ApiError('The reissue was rejected by the backend.', 400);
+  const payload: Record<string, unknown> = {
+    credentialId: id,
+    newCredentialId: input.newCredentialId,
+    newCredentialHash: input.newCredentialHash,
+  };
+  if (input.reason) {
+    payload.reason = input.reason;
   }
-  return receipt;
+  return submitLifecycleTransaction('CREDENTIAL_REISSUE', payload);
 }
 
 // ---------------------------------------------------------------------------

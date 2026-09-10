@@ -9,9 +9,9 @@ import type {
   ApiCredential,
   ApiIssuer,
   ApiIssuerHistory,
-  ApiMutationReceipt,
   ApiVerifyResult,
 } from '@/features/holder-admin/types/backend';
+import type { ApiTransaction } from '@/features/explorer-simulation/types/backend';
 
 // Integration-oriented tests for the REAL SecureX Blockchain V3.1 API mapping.
 //
@@ -82,15 +82,6 @@ const sampleVerify: ApiVerifyResult = {
   keyStatus: 'ACTIVE',
   protocolCompatible: true,
   verifiedAt: '2024-01-03T00:00:00.000Z',
-};
-
-const receipt: ApiMutationReceipt = {
-  submitted: true,
-  id: 'tx-99',
-  type: 'CREDENTIAL_SUSPEND',
-  sender: 'issuer-1',
-  nonce: 4,
-  status: 'PENDING',
 };
 
 describe('holderAdminService real backend integration', () => {
@@ -185,24 +176,35 @@ describe('holderAdminService real backend integration', () => {
     expect(fetchMock.mock.calls[0]![1].method).toBe('POST');
   });
 
-  it('performs credential lifecycle mutations against the real endpoints', async () => {
+  it('performs credential lifecycle mutations via the POST /transactions contract', async () => {
     const svc = await loadRealService();
 
-    fetchMock.mockResolvedValueOnce(fakeApi(receipt));
+    const submitted = { submitted: true, id: 'tx-99', status: 'PENDING' };
+
+    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
     const suspend = await svc.suspendRealCredential('sxu-btech-2026-0001', 'review');
     expect(suspend.submitted).toBe(true);
-    expect(fetchMock.mock.calls[0]![0]).toContain('/credentials/sxu-btech-2026-0001/suspend');
-    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ reason: 'review' });
+    expect(suspend.type).toBe('CREDENTIAL_SUSPEND');
+    expect(fetchMock.mock.calls[0]![0]).toContain('/transactions');
+    expect(fetchMock.mock.calls[0]![1].method).toBe('POST');
+    const suspendTx = JSON.parse(fetchMock.mock.calls[0]![1].body) as ApiTransaction;
+    expect(suspendTx.type).toBe('CREDENTIAL_SUSPEND');
+    expect(suspendTx.payload).toEqual({ credentialId: 'sxu-btech-2026-0001', reason: 'review' });
 
-    fetchMock.mockResolvedValueOnce(fakeApi(receipt));
+    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
     const reinstate = await svc.reinstateRealCredential('sxu-btech-2026-0001');
-    expect(fetchMock.mock.calls[1]![0]).toContain('/reinstate');
+    expect(fetchMock.mock.calls[1]![0]).toContain('/transactions');
+    const reinstateTx = JSON.parse(fetchMock.mock.calls[1]![1].body) as ApiTransaction;
+    expect(reinstateTx.type).toBe('CREDENTIAL_REINSTATE');
+    expect(reinstateTx.payload).toEqual({ credentialId: 'sxu-btech-2026-0001' });
     expect(reinstate.submitted).toBe(true);
 
-    fetchMock.mockResolvedValueOnce(fakeApi(receipt));
+    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
     const revoke = await svc.revokeRealCredential('sxu-btech-2026-0001', 'fraud');
-    expect(fetchMock.mock.calls[2]![0]).toContain('/revoke');
-    expect(JSON.parse(fetchMock.mock.calls[2]![1].body)).toEqual({ reason: 'fraud' });
+    expect(fetchMock.mock.calls[2]![0]).toContain('/transactions');
+    const revokeTx = JSON.parse(fetchMock.mock.calls[2]![1].body) as ApiTransaction;
+    expect(revokeTx.type).toBe('CREDENTIAL_REVOKE');
+    expect(revokeTx.payload).toEqual({ credentialId: 'sxu-btech-2026-0001', reason: 'fraud' });
     expect(revoke.submitted).toBe(true);
   });
 
@@ -348,30 +350,17 @@ describe('issuer lifecycle + privileged auth (Target 2 + Target 10)', () => {
     localStorage.removeItem('securex_holder_ownership_v1');
   });
 
-  it('suspends and activates an issuer against the real endpoints', async () => {
+  it('honestly rejects issuer suspend/activate (no such backend capability)', async () => {
     const svc = await loadRealService();
-    fetchMock.mockResolvedValueOnce(fakeApi(receipt));
-    const suspended = await svc.suspendRealIssuer('issuer-1', 'policy review');
-    expect(suspended.submitted).toBe(true);
-    expect(fetchMock.mock.calls[0]![0]).toContain('/issuers/issuer-1/suspend');
-    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ reason: 'policy review' });
-
-    fetchMock.mockResolvedValueOnce(fakeApi(receipt));
-    const activated = await svc.activateRealIssuer('issuer-1', 'restore');
-    expect(activated.submitted).toBe(true);
-    expect(fetchMock.mock.calls[1]![0]).toContain('/issuers/issuer-1/activate');
-    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toEqual({ reason: 'restore' });
-  });
-
-  it('throws a 400 when the backend rejects the issuer lifecycle change', async () => {
-    const svc = await loadRealService();
-    fetchMock.mockResolvedValueOnce(
-      fakeApi({ submitted: false, id: 'x', type: 'ISSUER_SUSPEND', sender: 's', nonce: 1, status: 'PENDING' }),
-    );
-    await expect(svc.suspendRealIssuer('issuer-1')).rejects.toMatchObject({
+    await expect(svc.suspendRealIssuer('issuer-1', 'policy review')).rejects.toMatchObject({
       name: 'ApiError',
       status: 400,
     });
+    await expect(svc.activateRealIssuer('issuer-1', 'restore')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 400,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('forwards the configured principal token and does not override it with the UI session token', async () => {
@@ -379,8 +368,8 @@ describe('issuer lifecycle + privileged auth (Target 2 + Target 10)', () => {
     vi.stubEnv('VITE_BLOCKCHAIN_AUTH_TOKEN', 'tkn-principal');
     try {
       localStorage.setItem('securex_auth_token', 'tkn-session');
-      fetchMock.mockResolvedValueOnce(fakeApi(receipt));
-      await svc.suspendRealIssuer('issuer-1');
+      fetchMock.mockResolvedValueOnce(fakeApi({ submitted: true, id: 'tx-1', status: 'PENDING' }));
+      await svc.suspendRealCredential('sxu-btech-2026-0001');
 
       const headers = new Headers(fetchMock.mock.calls[0]![1].headers);
       expect(headers.get('Authorization')).toBe('Bearer tkn-principal');
@@ -395,8 +384,8 @@ describe('issuer lifecycle + privileged auth (Target 2 + Target 10)', () => {
     vi.stubEnv('VITE_BLOCKCHAIN_AUTH_TOKEN', 'admin:secret');
     try {
       localStorage.setItem('securex_auth_token', 'some-other-session');
-      fetchMock.mockResolvedValueOnce(fakeApi(receipt));
-      await svc.activateRealIssuer('issuer-1');
+      fetchMock.mockResolvedValueOnce(fakeApi({ submitted: true, id: 'tx-2', status: 'PENDING' }));
+      await svc.revokeRealCredential('sxu-btech-2026-0001');
 
       const headers = new Headers(fetchMock.mock.calls[0]![1].headers);
       expect(headers.get('Authorization')).toBe('Bearer admin:secret');
