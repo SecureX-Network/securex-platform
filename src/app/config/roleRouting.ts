@@ -13,7 +13,7 @@ export function dashboardFor(role: UserRole): string {
     case 'EMPLOYER':
       return '/employer/dashboard';
     case 'HOLDER':
-      return '/holder/credentials';
+      return '/holder/dashboard';
     default:
       return '/';
   }

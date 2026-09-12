@@ -575,3 +575,49 @@ html.dark-theme .securex-signin-button:hover {
     0 0 28px rgba(250, 204, 21, 0.65),
     0 0 60px rgba(250, 204, 21, 0.25);
 }
+
+/* =========================================================
+   SYSTEM UX — FOCUS, MOTION, SCROLLBAR
+   ========================================================= */
+
+:focus-visible {
+  outline: 2px solid theme('colors.securex.500');
+  outline-offset: 2px;
+}
+
+html:not(.dark-theme) * {
+  scrollbar-width: thin;
+  scrollbar-color: theme('colors.neutral.300') transparent;
+}
+
+html.dark-theme * {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+* ::selection {
+  background-color: theme('colors.securex.100');
+  color: theme('colors.securex.900');
+}
+
+kbd {
+  font-family: theme('fontFamily.mono');
+}
+
+/* Monospace technical values (hashes, IDs, receipt codes) */
+.tech-value {
+  font-family: theme('fontFamily.mono');
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion — keep the interface calm and accessible */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

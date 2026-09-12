@@ -31,7 +31,7 @@ function renderEntry(overrides?: Partial<User>) {
           <Route path="/auth/register" element={<div>Register Page</div>} />
           <Route path="/verify" element={<div>Verify Page</div>} />
           <Route path="/explorer" element={<div>Explorer Page</div>} />
-          <Route path="/holder/credentials" element={<div>Holder Credentials Page</div>} />
+          <Route path="/holder/dashboard" element={<div>Holder Dashboard Page</div>} />
           <Route path="/institution/dashboard" element={<div>Institution Dashboard Page</div>} />
           <Route path="/employer/dashboard" element={<div>Employer Dashboard Page</div>} />
           <Route path="/admin/dashboard" element={<div>Admin Dashboard Page</div>} />
@@ -91,7 +91,7 @@ describe('AppEntryPage (unauthenticated root)', () => {
 
 describe('AppEntryPage (authenticated root redirects by role)', () => {
   const cases: Array<{ role: UserRole; expected: string }> = [
-    { role: 'HOLDER', expected: 'Holder Credentials Page' },
+    { role: 'HOLDER', expected: 'Holder Dashboard Page' },
     { role: 'INSTITUTION', expected: 'Institution Dashboard Page' },
     { role: 'ISSUER', expected: 'Institution Dashboard Page' },
     { role: 'EMPLOYER', expected: 'Employer Dashboard Page' },
@@ -110,7 +110,7 @@ describe('AppEntryPage (authenticated root redirects by role)', () => {
 
   it('keeps the session intact after a refresh-style reload', async () => {
     renderEntry({ role: 'HOLDER' });
-    expect(await screen.findByText('Holder Credentials Page')).toBeInTheDocument();
+    expect(await screen.findByText('Holder Dashboard Page')).toBeInTheDocument();
     expect(window.localStorage.getItem(AUTH_USER_KEY)).not.toBeNull();
   });
 });

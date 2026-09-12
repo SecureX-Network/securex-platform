@@ -1,30 +1,11 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import {
-  Activity,
-  AlertTriangle,
-  Building2,
-  FileCode,
-  History,
-  IdCard,
-  LayoutDashboard,
-  PlusCircle,
-  ScrollText,
-  Server,
-  Settings,
-  ShieldAlert,
-  ShieldCheck,
-  UserCog,
-  Users,
-} from 'lucide-react';
 import { ProtectedRoute } from './ProtectedRoute';
-import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { HolderLayout } from '@/components/layout/HolderLayout';
+import { AppShell } from '@/components/layout/AppShell';
 import { NotFoundPage } from '@/components/shared/NotFoundPage';
 import { PageLoader } from '@/components/shared/PageLoader';
 import { UnauthorizedPage } from '@/components/shared/UnauthorizedPage';
 import { ExternalRedirect } from '@/components/shared/ExternalRedirect';
-import type { NavItem } from '@/components/layout/Sidebar';
 
 const PUBLIC_SITE_URL = 'https://securex.sp-net.in';
 const AppEntryPage = lazy(() => import('@/features/auth/pages/AppEntryPage'));
@@ -33,9 +14,11 @@ const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
 const RegisterPage = lazy(() => import('@/features/auth/pages/RegisterPage'));
 const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage'));
 const MfaPage = lazy(() => import('@/features/auth/pages/MfaPage'));
+const AccountSettingsPage = lazy(() => import('@/features/auth/pages/AccountSettingsPage'));
 
 const VerifyPage = lazy(() => import('@/features/public-verification/pages/VerifyPage'));
 const VerifyCredentialPage = lazy(() => import('@/features/public-verification/pages/VerifyCredentialPage'));
+const NotificationsPage = lazy(() => import('@/features/notifications/pages/NotificationsPage'));
 
 const InstitutionDashboardPage = lazy(() => import('@/features/institution-employer/pages/InstitutionDashboardPage'));
 const InstitutionCredentialsPage = lazy(() => import('@/features/institution-employer/pages/InstitutionCredentialsPage'));
@@ -45,6 +28,7 @@ const InstitutionIssuePage = lazy(() => import('@/features/institution-employer/
 const InstitutionTemplatesPage = lazy(() => import('@/features/institution-employer/pages/InstitutionTemplatesPage'));
 
 const HolderDashboardPage = lazy(() => import('@/features/holder-admin/pages/HolderDashboardPage'));
+const HolderWalletPage = lazy(() => import('@/features/holder-admin/pages/HolderWalletPage'));
 const HolderCredentialsPage = lazy(() => import('@/features/holder-admin/pages/HolderCredentialsPage'));
 const HolderCredentialDetailPage = lazy(() => import('@/features/holder-admin/pages/HolderCredentialDetailPage'));
 const HolderSharePage = lazy(() => import('@/features/holder-admin/pages/HolderSharePage'));
@@ -82,40 +66,6 @@ const SecurityAlertsPage = lazy(() => import('@/features/security-center/pages/S
 const SecurityEventsPage = lazy(() => import('@/features/security-center/pages/SecurityEventsPage'));
 const SecuritySettingsPage = lazy(() => import('@/features/security-center/pages/SecuritySettingsPage'));
 
-const institutionNavigation: NavItem[] = [
-  { label: 'Dashboard', path: '/institution/dashboard', icon: LayoutDashboard, end: true },
-  { label: 'Credentials', path: '/institution/credentials', icon: IdCard },
-  { label: 'Issuers', path: '/institution/issuers', icon: Users },
-  { label: 'Templates', path: '/institution/templates', icon: FileCode },
-  { label: 'Issue Credential', path: '/institution/issue', icon: PlusCircle },
-];
-
-const employerNavigation: NavItem[] = [
-  { label: 'Dashboard', path: '/employer/dashboard', icon: LayoutDashboard, end: true },
-  { label: 'Verify Credential', path: '/employer/verify', icon: ShieldCheck },
-  { label: 'Verification History', path: '/employer/history', icon: History },
-];
-
-const adminNavigation: NavItem[] = [
-  { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard, end: true },
-  { label: 'Security Center', path: '/security', icon: ShieldCheck },
-  { label: 'Institutions', path: '/admin/institutions', icon: Building2 },
-  { label: 'Issuers', path: '/admin/issuers', icon: Users },
-  { label: 'Users', path: '/admin/users', icon: UserCog },
-  { label: 'Security', path: '/admin/security', icon: ShieldAlert },
-  { label: 'Security Alerts', path: '/admin/security/alerts', icon: AlertTriangle, badge: '2' },
-  { label: 'Audit Log', path: '/admin/security/audit', icon: ScrollText },
-  { label: 'Settings', path: '/admin/settings', icon: Settings },
-];
-
-const securityNavigation: NavItem[] = [
-  { label: 'Overview', path: '/security', icon: LayoutDashboard, end: true },
-  { label: 'Alerts', path: '/security/alerts', icon: AlertTriangle },
-  { label: 'Events', path: '/security/events', icon: Activity },
-  { label: 'Status', path: '/security/settings', icon: Server },
-  { label: 'Fraud & Tampering', path: '/fraud', icon: ShieldAlert },
-];
-
 function withSuspense(element: ReactNode): ReactNode {
   return <Suspense fallback={<PageLoader />}>{element}</Suspense>;
 }
@@ -141,12 +91,12 @@ export function AppRoutes() {
       <Route path="/verify" element={withSuspense(<VerifyPage />)} />
       <Route path="/verify/:credentialId" element={withSuspense(<VerifyCredentialPage />)} />
 
-      {/* Institution */}
+      {/* Institution / Issuer */}
       <Route
         path="/institution"
         element={
           <ProtectedRoute allowedRoles={['INSTITUTION', 'ISSUER', 'ADMIN']}>
-            <DashboardLayout navigation={institutionNavigation} title="Institution" />
+            <AppShell />
           </ProtectedRoute>
         }
       >
@@ -164,12 +114,13 @@ export function AppRoutes() {
         path="/holder"
         element={
           <ProtectedRoute allowedRoles={['HOLDER']}>
-            <HolderLayout />
+            <AppShell />
           </ProtectedRoute>
         }
       >
         <Route index element={<Navigate to="/holder/credentials" replace />} />
         <Route path="dashboard" element={withSuspense(<HolderDashboardPage />)} />
+        <Route path="wallet" element={withSuspense(<HolderWalletPage />)} />
         <Route path="credentials" element={withSuspense(<HolderCredentialsPage />)} />
         <Route path="credentials/:credentialId" element={withSuspense(<HolderCredentialDetailPage />)} />
         <Route path="share" element={withSuspense(<HolderSharePage />)} />
@@ -182,7 +133,7 @@ export function AppRoutes() {
         path="/employer"
         element={
           <ProtectedRoute allowedRoles={['EMPLOYER', 'ADMIN']}>
-            <DashboardLayout navigation={employerNavigation} title="Employer" />
+            <AppShell />
           </ProtectedRoute>
         }
       >
@@ -197,7 +148,7 @@ export function AppRoutes() {
         path="/admin"
         element={
           <ProtectedRoute allowedRoles={['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']}>
-            <DashboardLayout navigation={adminNavigation} title="Admin Console" />
+            <AppShell />
           </ProtectedRoute>
         }
       >
@@ -212,7 +163,7 @@ export function AppRoutes() {
         <Route path="settings" element={withSuspense(<AdminSettingsPage />)} />
       </Route>
 
-      {/* Explorer */}
+      {/* Explorer (public network application) */}
       <Route path="/explorer" element={withSuspense(<ExplorerOverviewPage />)} />
       <Route path="/explorer/blocks" element={withSuspense(<ExplorerBlocksPage />)} />
       <Route path="/explorer/blocks/:height" element={withSuspense(<ExplorerBlockDetailPage />)} />
@@ -225,12 +176,36 @@ export function AppRoutes() {
       <Route path="/explorer/attack-simulation/:id" element={withSuspense(<AttackSimulationDetailPage />)} />
       <Route path="/explorer/security/evidence/:id" element={withSuspense(<SecurityEvidencePage />)} />
 
+      {/* Shared account surfaces */}
+      <Route
+        path="/notifications"
+        element={
+          <ProtectedRoute allowedRoles={['HOLDER', 'INSTITUTION', 'ISSUER', 'EMPLOYER', 'ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']}>
+            <AppShell />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={withSuspense(<NotificationsPage />)} />
+      </Route>
+
+      <Route
+        path="/account"
+        element={
+          <ProtectedRoute allowedRoles={['HOLDER', 'INSTITUTION', 'ISSUER', 'EMPLOYER', 'ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']}>
+            <AppShell />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/account/settings" replace />} />
+        <Route path="settings" element={withSuspense(<AccountSettingsPage />)} />
+      </Route>
+
       {/* Fraud & Tampering */}
       <Route
         path="/fraud"
         element={
           <ProtectedRoute allowedRoles={['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']}>
-            <DashboardLayout navigation={securityNavigation} title="Security Center" />
+            <AppShell />
           </ProtectedRoute>
         }
       >
@@ -242,7 +217,7 @@ export function AppRoutes() {
         path="/security"
         element={
           <ProtectedRoute allowedRoles={['ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR']}>
-            <DashboardLayout navigation={securityNavigation} title="Security Center" />
+            <AppShell />
           </ProtectedRoute>
         }
       >
