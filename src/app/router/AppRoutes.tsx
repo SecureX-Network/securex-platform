@@ -20,16 +20,14 @@ import {
 import { ProtectedRoute } from './ProtectedRoute';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { HolderLayout } from '@/components/layout/HolderLayout';
-import { PublicLayout } from '@/components/layout/PublicLayout';
 import { NotFoundPage } from '@/components/shared/NotFoundPage';
 import { PageLoader } from '@/components/shared/PageLoader';
 import { UnauthorizedPage } from '@/components/shared/UnauthorizedPage';
+import { ExternalRedirect } from '@/components/shared/ExternalRedirect';
 import type { NavItem } from '@/components/layout/Sidebar';
 
-const HomePage = lazy(() => import('@/features/public-verification/pages/HomePage'));
-const AboutPage = lazy(() => import('@/features/public-verification/pages/AboutPage'));
-const HowItWorksPage = lazy(() => import('@/features/public-verification/pages/HowItWorksPage'));
-const ContactPage = lazy(() => import('@/features/public-verification/pages/ContactPage'));
+const PUBLIC_SITE_URL = 'https://securex.sp-net.in';
+const AppEntryPage = lazy(() => import('@/features/auth/pages/AppEntryPage'));
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
 const RegisterPage = lazy(() => import('@/features/auth/pages/RegisterPage'));
@@ -125,13 +123,13 @@ function withSuspense(element: ReactNode): ReactNode {
 export function AppRoutes() {
   return (
     <Routes>
-      {/* Public website */}
-      <Route element={<PublicLayout />}>
-        <Route path="/" element={withSuspense(<HomePage />)} />
-        <Route path="/about" element={withSuspense(<AboutPage />)} />
-        <Route path="/how-it-works" element={withSuspense(<HowItWorksPage />)} />
-        <Route path="/contact" element={withSuspense(<ContactPage />)} />
-      </Route>
+      {/* Main application entry */}
+      <Route path="/" element={withSuspense(<AppEntryPage />)} />
+
+      {/* Marketing routes belong to the public website (securex.sp-net.in) */}
+      <Route path="/about" element={<ExternalRedirect to={`${PUBLIC_SITE_URL}/about`} />} />
+      <Route path="/how-it-works" element={<ExternalRedirect to={`${PUBLIC_SITE_URL}/how-it-works`} />} />
+      <Route path="/contact" element={<ExternalRedirect to={`${PUBLIC_SITE_URL}/contact`} />} />
 
       {/* Authentication */}
       <Route path="/auth/login" element={withSuspense(<LoginPage />)} />
@@ -147,7 +145,7 @@ export function AppRoutes() {
       <Route
         path="/institution"
         element={
-          <ProtectedRoute allowedRoles={['INSTITUTION', 'ADMIN']}>
+          <ProtectedRoute allowedRoles={['INSTITUTION', 'ISSUER', 'ADMIN']}>
             <DashboardLayout navigation={institutionNavigation} title="Institution" />
           </ProtectedRoute>
         }

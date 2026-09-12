@@ -7,27 +7,9 @@ import { Checkbox } from '@/components/ui';
 import { Input } from '@/components/ui';
 import { AUTH_USER_KEY } from '@/constants';
 import { useAuth } from '@/hooks/useAuth';
-import type { User, UserRole } from '@/types';
+import { dashboardFor } from '@/app/config/roleRouting';
+import type { User } from '@/types';
 import { AuthLayout } from '../components/AuthLayout';
-
-function dashboardFor(role: UserRole): string {
-  switch (role) {
-    case 'ADMIN':
-    case 'SECURITY_ADMIN':
-    case 'NETWORK_ADMIN':
-    case 'AUDITOR':
-      return '/admin/dashboard';
-    case 'INSTITUTION':
-    case 'ISSUER':
-      return '/institution/dashboard';
-    case 'EMPLOYER':
-      return '/employer/dashboard';
-    case 'HOLDER':
-      return '/holder/credentials';
-    default:
-      return '/';
-  }
-}
 
 const DEMO_ACCOUNTS = [
   { role: 'Admin', email: 'admin@securex.io', password: 'Password123!' },

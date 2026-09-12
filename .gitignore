@@ -37,3 +37,7 @@ npm-debug.log*
 server-data/
 .vercel
 .env*
+
+# Playwright
+playwright-report/
+test-results/

@@ -44,6 +44,29 @@ const spinnerSizes: Record<ButtonSize, string> = {
   lg: "h-5 w-5",
 };
 
+export const buttonBaseClasses =
+  "inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60 shrink-0 whitespace-nowrap select-none";
+
+export function getButtonClassNames({
+  variant = "primary",
+  size = "md",
+  fullWidth = false,
+  className,
+}: {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  fullWidth?: boolean;
+  className?: string;
+}) {
+  return classNames(
+    buttonBaseClasses,
+    variantClasses[variant],
+    sizeClasses[size],
+    fullWidth && "w-full",
+    className,
+  );
+}
+
 export interface ButtonBaseProps {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -80,17 +103,7 @@ export function Button(props: CombinedProps) {
     ...rest
   } = props;
 
-  const classes = classNames(
-    "inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60 shrink-0 whitespace-nowrap select-none",
-
-    variantClasses[variant],
-
-    sizeClasses[size],
-
-    fullWidth && "w-full",
-
-    className,
-  );
+  const classes = getButtonClassNames({ variant, size, fullWidth, className });
 
   const spinner = isLoading ? (
     <LoaderCircle
