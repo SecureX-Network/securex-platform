@@ -1,9 +1,30 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  content: [
+    "./index.html",
+    "./explorer/**/*.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
   theme: {
     extend: {
       colors: {
+        // SecureX Blockchain Explorer palette. Additive and scoped to the
+        // dedicated Explorer build (src/explorer/**) — the SecureX application
+        // never references these tokens, so the app's light theme is
+        // unaffected by their presence here.
+        explorer: {
+          bg: "#050505",
+          surface: "#0E0E11",
+          raised: "#14141A",
+          hover: "#1A1A22",
+          border: "#22222B",
+          line: "#2A2A35",
+          accent: "#3B82F6",
+          "accent-alt": "#6D5EF5",
+          text: "#F4F5F7",
+          subtext: "#9BA0B0",
+          faint: "#666C7D",
+        },
         securex: {
           50: "#eef6ff",
           100: "#d9ebff",

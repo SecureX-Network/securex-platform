@@ -7,7 +7,6 @@ import {
   type ChainHealthDto,
   type ChainMetricsDto,
   type ChainNetworkDto,
-  type ChainTransactionDto,
   type ChainTransactionRecordDto,
   type ChainValidatorDto,
 } from '@/services/api/blockchainProxy';
@@ -15,6 +14,37 @@ import { mockDelay } from '@/services/mock';
 import { MOCK_PEERS } from '../data/network';
 import { MOCK_VALIDATORS } from '../data/validators';
 import type { NetworkOverview, Peer, Validator } from '../types';
+import {
+  mapBlock,
+  toTransactionView,
+  type ExplorerBlockPage,
+  type ExplorerBlockView,
+  type ExplorerHealthView,
+  type ExplorerNetworkStatus,
+  type ExplorerPeers,
+  type ExplorerTransactionView,
+  type ExplorerValidatorView,
+} from './explorerViewModels';
+
+// ---------------------------------------------------------------------------
+// The explorer's view models and DTO -> view mappers live in
+// `explorerViewModels.ts` so the dedicated public Explorer (src/explorer/**)
+// can reuse the same blockchain data model without importing this module — and
+// therefore without pulling this module's DEMO fixtures and mock service into a
+// public bundle. They are re-exported here so every existing importer of
+// `explorerService` keeps working unchanged.
+// ---------------------------------------------------------------------------
+export {
+  mapBlock,
+  toTransactionView,
+  type ExplorerBlockPage,
+  type ExplorerBlockView,
+  type ExplorerHealthView,
+  type ExplorerNetworkStatus,
+  type ExplorerPeers,
+  type ExplorerTransactionView,
+  type ExplorerValidatorView,
+} from './explorerViewModels';
 
 export type DataSourceMode = 'REAL' | 'DEMO';
 
@@ -23,51 +53,9 @@ export function getDataSourceMode(): DataSourceMode {
 }
 
 // ---------------------------------------------------------------------------
-// View models for the explorer UI. These represent real backend data in a
-// shape the UI can render without the invented/demo-only fields (gas, from/to,
-// confirmations, currency concepts) that the old shared mock types carried.
+// View models and DTO -> view mappers are imported from ./explorerViewModels
+// (see the re-export note at the top of this file).
 // ---------------------------------------------------------------------------
-
-export interface ExplorerBlockView {
-  height: number;
-  hash: string;
-  previousHash: string;
-  merkleRoot: string;
-  timestamp: string;
-  proposerId: string;
-  transactionCount: number;
-  version: number;
-  transactions: ExplorerTransactionView[];
-}
-
-export interface ExplorerTransactionView {
-  id: string;
-  type: string;
-  timestamp: string;
-  sender: string;
-  nonce: number;
-  blockHeight: number;
-  protocolVersion: string;
-}
-
-export interface ExplorerNetworkStatus {
-  height: number;
-  peerCount: number;
-  validatorCount: number;
-  activeValidatorCount: number;
-  currentProposer: string | null;
-  pendingTransactions: number;
-  protocolVersion: string;
-  nodeVersion: string;
-  nodeId: string;
-  status: string;
-}
-
-export interface ExplorerPeers {
-  connected: string[];
-  known: Array<{ nodeId: string; address: string; lastSeen: string; isValidator: boolean }>;
-  peerCount: number;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -101,48 +89,9 @@ async function runWithRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 600)
   throw lastError;
 }
 
-function mapBlock(block: ChainBlockDto): ExplorerBlockView {
-  return {
-    height: block.height,
-    hash: block.hash,
-    previousHash: block.previousHash,
-    merkleRoot: block.merkleRoot,
-    timestamp: block.timestamp,
-    proposerId: block.proposerId,
-    transactionCount: block.transactionCount,
-    version: block.version,
-    transactions: block.transactions.map((tx) =>
-      toTransactionView(tx, block.height),
-    ),
-  };
-}
-
-export function toTransactionView(
-  tx: ChainTransactionDto,
-  blockHeight?: number,
-): ExplorerTransactionView {
-  return {
-    id: tx.id,
-    type: tx.type,
-    timestamp: tx.timestamp,
-    sender: tx.sender,
-    nonce: tx.nonce,
-    blockHeight: blockHeight ?? 0,
-    protocolVersion: `${tx.protocolVersion} / v${tx.transactionVersion}`,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Blocks
 // ---------------------------------------------------------------------------
-
-export interface ExplorerBlockPage {
-  blocks: ExplorerBlockView[];
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
 
 export async function getExplorerBlocks(
   page: number,
@@ -339,13 +288,6 @@ export async function getRecentTransactions(
 // Validators
 // ---------------------------------------------------------------------------
 
-export interface ExplorerValidatorView {
-  id: string;
-  publicKey: string;
-  active: boolean;
-  addedAt: string;
-}
-
 export async function getExplorerValidators(): Promise<ExplorerValidatorView[]> {
   if (getDataSourceMode() === 'DEMO') {
     await mockDelay();
@@ -438,15 +380,6 @@ export async function getExplorerPeers(): Promise<ExplorerPeers> {
     known: network.knownPeers,
     peerCount: network.peerCount,
   };
-}
-
-export interface ExplorerHealthView {
-  status: string;
-  height: number;
-  peerCount: number;
-  nodeVersion: string;
-  protocolVersion: string;
-  checkedAt: string;
 }
 
 export async function getExplorerHealth(): Promise<ExplorerHealthView> {

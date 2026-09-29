@@ -1,9 +1,6 @@
-import { MOCK_DELAY } from '@/constants';
-
 export * from './data';
 
-export function mockDelay(ms: number = MOCK_DELAY): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, Math.max(0, ms));
-  });
-}
+// `mockDelay` is re-exported from its own module rather than defined here, so
+// that importing the delay alone does not drag the entire mock dataset into a
+// consumer's bundle. `client.ts` imports the module directly for that reason.
+export { mockDelay } from './delay';

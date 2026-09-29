@@ -1,5 +1,9 @@
 import { API_BASE_URL, AUTH_TOKEN_KEY, IS_MOCK } from '@/constants';
-import { mockDelay } from '@/services/mock';
+// Imported from the delay module directly, NOT from the `@/services/mock`
+// barrel: the barrel re-exports the whole demo dataset, so going through it
+// would pull ~40KB of fixtures into any bundle that only needs `fetchPlatformAPI`
+// (notably the public Blockchain Explorer, which must ship no demo data).
+import { mockDelay } from '@/services/mock/delay';
 import type { ApiResponse } from '@/types';
 
 export class ApiError extends Error {
@@ -148,10 +152,18 @@ async function requestJson<T>(
  * and no blockchain service credential, so it can never address the privileged
  * blockchain service directly. Chain operations are requested from the Platform
  * API, which authorizes the caller and then proxies the call server-side.
+ *
+ * `timeoutMs` is an optional override of the 15s default. The public Blockchain
+ * Explorer passes a longer budget because its upstream (the Platform API and,
+ * behind it, the blockchain node) runs on a free plan that sleeps: a cold start
+ * can legitimately take far longer than 15s, and aborting early would report a
+ * healthy-but-asleep node as an outage. Callers that keep the default are
+ * unaffected.
  */
 export async function fetchPlatformAPI<T>(
   url: string,
   options: RequestInit = {},
+  timeoutMs = 15000,
 ): Promise<T> {
-  return requestJson<T>(API_BASE_URL, url, options);
+  return requestJson<T>(API_BASE_URL, url, options, timeoutMs);
 }

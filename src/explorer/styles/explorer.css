@@ -1,0 +1,275 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   SECUREX BLOCKCHAIN EXPLORER — DARK TECHNICAL THEME
+
+   Loaded ONLY by src/explorer/main.tsx. The SecureX application imports
+   styles/globals.css (a light theme) instead, so nothing here can affect
+   app-securex.sp-net.in.
+
+   Palette (fixed by product design):
+     background        #050505
+     secondary surface #0E0E11
+     primary accent    #3B82F6
+     secondary accent  #6D5EF5
+   ========================================================================== */
+
+@layer base {
+  :root {
+    --explorer-bg: #050505;
+    --explorer-surface: #0e0e11;
+    --explorer-border: #22222b;
+    --explorer-accent: #3b82f6;
+    --explorer-accent-alt: #6d5ef5;
+  }
+
+  html {
+    color-scheme: dark;
+    background-color: var(--explorer-bg);
+  }
+
+  body {
+    @apply bg-explorer-bg text-explorer-text font-sans;
+    margin: 0;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible, on-brand focus ring for keyboard users on the dark surface. */
+  :focus-visible {
+    outline: 2px solid var(--explorer-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgba(59, 130, 246, 0.32);
+    color: #ffffff;
+  }
+
+  /* Dark scrollbar so long explorer tables do not flash a light track. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a35 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #2a2a35;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #3a3a48;
+  }
+}
+
+@layer components {
+  /* ---------------------------------------------------------------------
+     BACKGROUND — subtle technical grid + node-network glow.
+     Two fixed radial glows sit under a faint square grid, which reads as a
+     network/graph paper without ever competing with the data.
+     --------------------------------------------------------------------- */
+  .explorer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-color: #050505;
+  }
+
+  .explorer-backdrop::before {
+    /* Grid */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.032) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
+    background-size: 56px 56px;
+    /* Fade the grid out toward the bottom so it never fights with content. */
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.25));
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.9),
+      rgba(0, 0, 0, 0.25)
+    );
+  }
+
+  .explorer-backdrop::after {
+    /* Blue + purple glow */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(
+        ellipse 70% 45% at 12% -8%,
+        rgba(59, 130, 246, 0.16),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 60% 42% at 88% 2%,
+        rgba(109, 94, 245, 0.14),
+        transparent 62%
+      ),
+      radial-gradient(
+        ellipse 80% 50% at 50% 108%,
+        rgba(59, 130, 246, 0.07),
+        transparent 65%
+      );
+  }
+
+  /* ---------------------------------------------------------------------
+     CARDS
+     --------------------------------------------------------------------- */
+  .explorer-card {
+    @apply rounded-2xl border border-explorer-border bg-explorer-surface/80 backdrop-blur-sm;
+    position: relative;
+  }
+
+  /* A 1px top highlight is what makes a dark card read as a physical surface
+     rather than a flat black rectangle. */
+  .explorer-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    border-radius: 9999px 9999px 0 0;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgba(255, 255, 255, 0.12),
+      transparent
+    );
+    pointer-events: none;
+  }
+
+  .explorer-card-hover {
+    @apply transition-colors duration-200;
+  }
+  .explorer-card-hover:hover {
+    @apply border-explorer-line bg-explorer-raised;
+  }
+
+  /* ---------------------------------------------------------------------
+     GRADIENT BRAND TEXT
+     --------------------------------------------------------------------- */
+  .explorer-gradient-text {
+    background: linear-gradient(
+      100deg,
+      #ffffff 0%,
+      #cfe0ff 38%,
+      #6d5ef5 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ---------------------------------------------------------------------
+     STATUS DOT — slow pulse used for a genuinely reachable node.
+     --------------------------------------------------------------------- */
+  .explorer-pulse-dot {
+    position: relative;
+  }
+  .explorer-pulse-dot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: explorer-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+}
+
+@layer utilities {
+  .explorer-hairline {
+    @apply border-explorer-border;
+  }
+}
+
+/* ==========================================================================
+   ANIMATION
+   Kept deliberately small: a skeleton shimmer, a status ping, and a short
+   entrance for cards. No decorative motion, and all of it is disabled under
+   `prefers-reduced-motion`.
+   ========================================================================== */
+
+@keyframes explorer-ping {
+  75%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes explorer-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes explorer-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes explorer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.explorer-shimmer-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.explorer-shimmer-host::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.07) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: explorer-shimmer 1.6s infinite;
+}
+
+.explorer-enter {
+  animation: explorer-enter 0.32s ease-out both;
+}
+
+.explorer-spin {
+  animation: explorer-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .explorer-pulse-dot::after,
+  .explorer-shimmer-host::after,
+  .explorer-enter,
+  .explorer-spin {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}

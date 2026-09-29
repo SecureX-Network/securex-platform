@@ -5,6 +5,9 @@ node_modules/
 dist/
 dist-ssr/
 dist-server/
+# Public Blockchain Explorer build (see vite.explorer.config.ts). Deployed as
+# its own Vercel project from `dist-explorer`, never committed.
+dist-explorer/
 
 # Environment
 .env

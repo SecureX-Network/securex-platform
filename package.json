@@ -6,7 +6,10 @@
   "description": "SecureX — Blockchain-Powered Digital Credential Trust Network",
   "scripts": {
     "dev": "vite",
+    "dev:explorer": "vite --config vite.explorer.config.ts",
     "build": "tsc -b && vite build",
+    "build:explorer": "tsc -b && vite build --config vite.explorer.config.ts",
+    "preview:explorer": "vite preview --config vite.explorer.config.ts",
     "build:server": "rm -rf dist-server && tsc -p server/tsconfig.build.json && cp server/db/schema.sql dist-server/db/schema.sql",
     "start": "node dist-server/index.js",
     "preview": "vite preview",
