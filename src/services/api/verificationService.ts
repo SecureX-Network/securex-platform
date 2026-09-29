@@ -1,110 +1,105 @@
 import { IS_MOCK } from '@/constants';
-import {
-  MOCK_BLOCKS,
-  MOCK_CREDENTIALS,
-  MOCK_INSTITUTIONS,
-  MOCK_ISSUERS,
-  MOCK_VERIFICATION_HISTORY,
-  mockDelay,
-} from '@/services/mock';
-import type { CredentialStatus, VerificationHistory, VerificationResult } from '@/types';
+import { MOCK_CREDENTIALS, MOCK_VERIFICATION_HISTORY, mockDelay } from '@/services/mock';
+import type { CredentialStatus, VerificationHistory } from '@/types';
 import { fetchAPI, unwrapResponse } from './client';
 
-export interface PlatformDocumentHashCheck {
+// ---------------------------------------------------------------------------
+// PUBLIC VERIFICATION DTO (browser side of server/dto/publicVerification.ts)
+//
+// The verification endpoint is unauthenticated, so it serves a purpose-built
+// minimal DTO. These declarations must stay field-for-field in step with the
+// server's `PublicVerificationDto`: nothing is inferred, and every capability
+// the server marks unavailable is represented here as `available: false` rather
+// than being omitted, so the UI can state plainly what was NOT checked.
+// ---------------------------------------------------------------------------
+
+export type PublicVerificationStatus = CredentialStatus;
+
+export type PublicCapabilityStatus = 'VERIFIED' | 'UNVERIFIED' | 'NOT_FOUND';
+
+export interface PublicCapabilityCheck {
+  verified: boolean;
+  available: boolean;
+  status: PublicCapabilityStatus;
+  detail: string;
+}
+
+export type PublicDocumentIntegrityStatus = 'EXACT' | 'TAMPERED' | 'UNVERIFIABLE';
+
+export interface PublicDocumentIntegrityCheck {
   credentialId: string;
   suppliedHash: string;
-  anchoredHash: string | null;
   hashMatch: boolean;
-  status: 'EXACT' | 'TAMPERED' | 'UNVERIFIABLE';
+  status: PublicDocumentIntegrityStatus;
+  scope: 'PLATFORM_RECORD';
+  detail: string;
   verifiedAt: string;
 }
 
-export type PlatformVerificationResult = VerificationResult & {
-  documentHashCheck?: PlatformDocumentHashCheck;
-  message?: string;
+export interface PublicVerificationResult {
+  credentialId: string;
+  status: PublicVerificationStatus;
+  storedStatus: PublicVerificationStatus;
+  issuerName: string | null;
+  issuedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  verifiedAt: string;
+  checks: {
+    credentialRecord: PublicCapabilityCheck;
+    blockchainProof: PublicCapabilityCheck;
+    signature: PublicCapabilityCheck;
+    documentIntegrity?: PublicDocumentIntegrityCheck;
+  };
+  message: string;
+}
+
+// ---------------------------------------------------------------------------
+// DEMO BUILDERS
+//
+// DEMO mode is an explicitly opt-in, fully offline preview (VITE_USE_MOCK=true).
+// It is NOT the real verification path, but it speaks the SAME DTO as the real
+// Platform API so the UI is exercised honestly: in particular it never claims a
+// blockchain proof or a signature verification, because SecureX does not
+// implement either.
+// ---------------------------------------------------------------------------
+
+const DEMO_UNAVAILABLE_BLOCKCHAIN_PROOF: PublicCapabilityCheck = {
+  verified: false,
+  available: false,
+  status: 'UNVERIFIED',
+  detail:
+    'Blockchain anchoring is not verified. SecureX has not obtained a block inclusion proof for this credential, so no transaction hash, block height, or confirmation count is presented.',
 };
 
-function applyMockDocumentHashCheck(
-  result: VerificationResult,
-  suppliedHash: string,
-): PlatformVerificationResult {
-  const credential = result.credential;
-  if (!credential) return result;
-  const anchoredHash = credential.merkleRoot ?? null;
-  const hashMatch =
-    anchoredHash != null && suppliedHash.toLowerCase() === anchoredHash.toLowerCase();
-  const documentHashCheck: PlatformDocumentHashCheck = {
-    credentialId: result.credentialId,
-    suppliedHash,
-    anchoredHash,
-    hashMatch,
-    status: hashMatch ? 'EXACT' : 'TAMPERED',
-    verifiedAt: new Date().toISOString(),
-  };
-  if (!hashMatch) {
-    return {
-      ...result,
-      documentHashCheck,
-      signatureVerification: { ...result.signatureVerification, valid: false },
-      fraudCheck: {
-        ...result.fraudCheck,
-        flags: [...result.fraudCheck.flags, 'Hash verification failed — document does not match the ledger record'],
-      },
-    };
-  }
-  return { ...result, documentHashCheck };
-}
+const DEMO_UNAVAILABLE_SIGNATURE: PublicCapabilityCheck = {
+  verified: false,
+  available: false,
+  status: 'UNVERIFIED',
+  detail:
+    'Cryptographic signature verification is not implemented. No signature algorithm is claimed and no signature is reported as valid.',
+};
 
-interface RiskProfile {
-  riskLevel: VerificationResult['fraudCheck']['riskLevel'];
-  score: number;
-  flags: string[];
-}
-
-function riskForStatus(status: CredentialStatus): RiskProfile {
+function mockMessageForStatus(status: PublicVerificationStatus): string {
   switch (status) {
     case 'VALID':
-      return { riskLevel: 'LOW', score: 9, flags: ['No anomalies detected'] };
-    case 'REVOKED':
-      return {
-        riskLevel: 'HIGH',
-        score: 74,
-        flags: ['Credential has been revoked by the issuer'],
-      };
-    case 'SUSPENDED':
-      return {
-        riskLevel: 'MEDIUM',
-        score: 55,
-        flags: ['Credential temporarily suspended pending review'],
-      };
+      return 'Credential record verified (DEMO data).';
     case 'EXPIRED':
-      return {
-        riskLevel: 'MEDIUM',
-        score: 41,
-        flags: ['Credential has exceeded its validity period'],
-      };
-    case 'TAMPERED':
-      return {
-        riskLevel: 'CRITICAL',
-        score: 96,
-        flags: ['Digital signature mismatch detected', 'Hash verification failed'],
-      };
-    case 'SUSPICIOUS':
-      return {
-        riskLevel: 'HIGH',
-        score: 82,
-        flags: ['Anomalous issuance pattern detected'],
-      };
+      return 'Credential record found (DEMO data), but it is past its expiration date and is no longer VALID.';
+    case 'REVOKED':
+      return 'Credential record found (DEMO data). It has been revoked and is no longer VALID.';
+    case 'SUSPENDED':
+      return 'Credential record found (DEMO data). It is currently suspended by the issuer.';
     default:
-      return {
-        riskLevel: 'HIGH',
-        score: 90,
-        flags: ['Could not verify credential integrity'],
-      };
+      return 'Credential record could not be verified (DEMO data).';
   }
 }
 
-function buildMockVerification(credentialId: string): VerificationResult {
+function buildMockVerification(
+  credentialId: string,
+  documentHash?: string,
+): PublicVerificationResult {
+  const verifiedAt = new Date().toISOString();
   const credential = MOCK_CREDENTIALS.find(
     (c) => c.credentialId === credentialId || c.id === credentialId,
   );
@@ -113,69 +108,88 @@ function buildMockVerification(credentialId: string): VerificationResult {
     return {
       credentialId,
       status: 'NOT_FOUND',
-      issuer: { name: 'Unknown', verified: false },
-      blockchainProof: { verified: false },
-      signatureVerification: { valid: false },
-      fraudCheck: {
-        riskLevel: 'HIGH',
-        score: 92,
-        flags: ['Credential ID not found on distributed ledger'],
+      storedStatus: 'NOT_FOUND',
+      issuerName: null,
+      issuedAt: null,
+      expiresAt: null,
+      revokedAt: null,
+      verifiedAt,
+      checks: {
+        credentialRecord: {
+          verified: false,
+          available: true,
+          status: 'NOT_FOUND',
+          detail: 'No DEMO credential record with this ID exists.',
+        },
+        blockchainProof: DEMO_UNAVAILABLE_BLOCKCHAIN_PROOF,
+        signature: DEMO_UNAVAILABLE_SIGNATURE,
       },
-      verifiedAt: new Date().toISOString(),
+      message: 'No credential record with this ID exists in the DEMO dataset.',
     };
   }
 
-  const issuer = MOCK_ISSUERS.find((i) => i.id === credential.issuerId);
-  const institution = MOCK_INSTITUTIONS.find(
-    (i) => i.id === credential.institutionId,
-  );
-  const block =
-    MOCK_BLOCKS[credential.credentialId.length % MOCK_BLOCKS.length] ??
-    MOCK_BLOCKS[0];
-  const isValid = credential.status === 'VALID';
-  const risk = riskForStatus(credential.status);
+  const checks: PublicVerificationResult['checks'] = {
+    credentialRecord: {
+      verified: true,
+      available: true,
+      status: 'VERIFIED',
+      detail: `A DEMO credential record with this ID exists. Its status is ${credential.status}.`,
+    },
+    blockchainProof: DEMO_UNAVAILABLE_BLOCKCHAIN_PROOF,
+    signature: DEMO_UNAVAILABLE_SIGNATURE,
+  };
+
+  let message = mockMessageForStatus(credential.status);
+
+  if (documentHash) {
+    const reference = credential.merkleRoot;
+    const comparable = reference != null && reference.trim() !== '';
+    const hashMatch =
+      comparable && documentHash.toLowerCase() === String(reference).toLowerCase();
+    checks.documentIntegrity = {
+      credentialId: credential.credentialId,
+      suppliedHash: documentHash,
+      hashMatch,
+      status: !comparable ? 'UNVERIFIABLE' : hashMatch ? 'EXACT' : 'TAMPERED',
+      scope: 'PLATFORM_RECORD',
+      detail: !comparable
+        ? 'This DEMO credential record stores no document hash reference, so integrity cannot be compared.'
+        : hashMatch
+          ? 'The supplied hash matches the reference stored on this DEMO record. This is a record comparison, not a blockchain or signature proof.'
+          : 'The supplied hash does not match the reference stored on this DEMO record. The document may differ from the recorded version.',
+      verifiedAt,
+    };
+    if (!hashMatch) {
+      message = comparable
+        ? 'The supplied document hash does not match the reference stored on this DEMO record.'
+        : 'This DEMO record stores no document hash reference, so document integrity could not be compared.';
+    }
+  }
 
   return {
     credentialId: credential.credentialId,
     status: credential.status,
-    credential,
-    issuer: {
-      name: credential.institutionName,
-      verified: institution?.verified ?? false,
-      publicKey: issuer?.publicKey,
-    },
-    blockchainProof: {
-      verified: isValid,
-      txHash: credential.blockchainTxHash,
-      blockHeight: block?.height,
-      confirmations: isValid ? 26 : 0,
-      timestamp: block?.timestamp,
-    },
-    signatureVerification: {
-      valid:
-        credential.status !== 'TAMPERED' && credential.status !== 'NOT_FOUND',
-      algorithm: 'Ed25519-SHA256',
-      verifiedAt: new Date().toISOString(),
-    },
-    fraudCheck: risk,
-    verifiedAt: new Date().toISOString(),
+    storedStatus: credential.status,
+    issuerName: credential.institutionName,
+    issuedAt: credential.issuedAt,
+    expiresAt: credential.expiresAt ?? null,
+    revokedAt: credential.revokedAt ?? null,
+    verifiedAt,
+    checks,
+    message,
   };
 }
 
 export async function verifyCredential(
   credentialId: string,
   documentHash?: string,
-): Promise<PlatformVerificationResult> {
+): Promise<PublicVerificationResult> {
   if (IS_MOCK) {
     await mockDelay();
-    const result = buildMockVerification(credentialId);
-    if (documentHash) {
-      return applyMockDocumentHashCheck(result, documentHash);
-    }
-    return result;
+    return buildMockVerification(credentialId, documentHash);
   }
   const hashQuery = documentHash ? `&hash=${encodeURIComponent(documentHash)}` : '';
-  const response = await fetchAPI<PlatformVerificationResult>(
+  const response = await fetchAPI<PublicVerificationResult>(
     `/verifications?credentialId=${encodeURIComponent(credentialId)}${hashQuery}`,
   );
   return unwrapResponse(response);
@@ -198,12 +212,12 @@ export async function getVerificationHistory(
 
 export async function searchCredential(
   credentialId: string,
-): Promise<VerificationResult> {
+): Promise<PublicVerificationResult> {
   if (IS_MOCK) {
     await mockDelay();
     return buildMockVerification(credentialId);
   }
-  const response = await fetchAPI<VerificationResult>(
+  const response = await fetchAPI<PublicVerificationResult>(
     `/verifications/search?credentialId=${encodeURIComponent(credentialId)}`,
   );
   return unwrapResponse(response);

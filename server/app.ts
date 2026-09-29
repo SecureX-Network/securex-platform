@@ -1,6 +1,7 @@
 import express, { NextFunction, Request, Response } from 'express';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
+import { blockchainRouter } from './routes/blockchain.js';
 import { credentialsRouter } from './routes/credentials.js';
 import { explorersRouter } from './routes/explorer.js';
 import { institutionsRouter } from './routes/institutions.js';
@@ -59,12 +60,17 @@ export function createApp() {
     api.use('/institutions', institutionsRouter);
     api.use('/credentials', credentialsRouter);
     api.use('/verifications', rateLimiters.verify, verificationsRouter);
+    // The public QR resolution path is unauthenticated and signature-checking,
+    // so it carries the verification bucket on top of the default one.
+    api.use('/blockchain/qr/verify', rateLimiters.verify);
+    api.use('/blockchain', blockchainRouter);
     api.use('/admin', adminRouter);
   } else {
     api.use('/auth', authRouter);
     api.use('/institutions', institutionsRouter);
     api.use('/credentials', credentialsRouter);
     api.use('/verifications', verificationsRouter);
+    api.use('/blockchain', blockchainRouter);
     api.use('/admin', adminRouter);
   }
   // Explorer surfaces (blocks/transactions/network stats) are read-only.

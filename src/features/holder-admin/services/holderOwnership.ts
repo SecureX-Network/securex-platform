@@ -1,3 +1,5 @@
+import { MOCK_CREDENTIALS } from '@/services/mock/data';
+
 // ---------------------------------------------------------------------------
 // Off-chain Holder <-> Credential ownership registry.
 //
@@ -68,6 +70,63 @@ export const REAL_DEMO_QR_TOKENS = [
   'uI4oP7aS2dF9gH1jK6lZ0xC4vB6nM1qW3eR5tY8uI',
 ];
 
+/**
+ * The offline DEMO wallet dataset (see `MOCK_CREDENTIALS`) is a SEPARATE fixture
+ * set from the on-chain seed above: it carries its own internal ids (cred-00N)
+ * and its own public ids. Both are reachable from the UI, so both have to yield
+ * a scannable QR: the share page hands `getRealQrReference` a public id, while
+ * the credential detail page hands it the internal route id. Public ids that
+ * already own a token in `REAL_DEMO_QR_TOKENS` keep it; the rest get the fixed
+ * opaque tokens below (same properties: no readable public ID, no derivation).
+ */
+const DEMO_WALLET_QR_TOKENS: Record<string, string> = {
+  'SX-8B31-7C0D-4A6E': 'nSYSo9veycFuHqu_q7jEJCixxgGTduDkYGb2v7Ra',
+  'SX-5E42-90F3-1B6C': 'PORWSy6EE08WPyldLaV8bJsrT_y1M4BkGOjOwVU_',
+  'SX-7A18-3D5F-90E2': 'yQplRq_MDUFJEq2Es42Y_JIvP8b-aRJPGUXWaOgm',
+  'SX-C0B4-62A7-5E91': 'qByM2qW1T_uUDrVkEeOHdGMcD1r2sjiikvchYEVT',
+  'SX-3E97-D120-8B4F': 'YRSwCHjy0icYHHH-kZ-MnizeIfvHAIPX1xFigQar',
+  'SX-9D61-4AC8-0F3B': 'ywvJUFnD8d1u0MFaVZDUL0wGlbyjxn8E5W7qv4P3',
+  'SX-16A5-E9B2-7C40': 'LCt8NGdQdpz1lksYWKE7Yx0Z87ViKfETwJMLDqSJ',
+  'SX-4B8F-C1D6-29A3': '2ZT1hr-UjvYndbBC_ixUAoPNi2U5sbKaWCh0x4Av',
+  'SX-F7C3-58E0-1D9A': 'EuaDryt_bwj8bdctyHNcpGbU9dLr22J5OCrQJQXx',
+  'SX-2A64-9B7E-50CD': 'iVnpEqd9oA5VbBFlH_4-i9hrKqMHb2w9aP-YUCOg',
+  'SX-83E1-0FA6-4B92': '0lE8brnQak8mHQR1_tRUwwMgmtgTlW7c1kGF3gva',
+  'SX-5C97-D3B8-6E01': 'oDGOkZMUtQiwEP26p6tKFrco1fcrB7FoKsYyk1EQ',
+  'SX-D0A2-71EC-9B45': 'ArR6Axs1ugjeRInoT_kJbBl3OIkaRPAs7UagUBGS',
+  'SX-EF4B-390A-7C58': 'hngGSAyRtNOrWJGBoTGL66nOWpMEbJ75lBVG2HZB',
+};
+
+/**
+ * Pair two ordered (1:1) fixture lists. Entries past the end of either list are
+ * skipped rather than asserted, so a fixture can grow on one side without
+ * producing a half-populated mapping.
+ */
+function zipFixturePairs(left: readonly string[], right: readonly string[]): Array<[string, string]> {
+  const pairs: Array<[string, string]> = [];
+  for (let i = 0; i < left.length && i < right.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (a !== undefined && b !== undefined) pairs.push([a, b]);
+  }
+  return pairs;
+}
+
+const QR_TOKEN_BY_PUBLIC_ID: ReadonlyMap<string, string> = new Map([
+  ...zipFixturePairs(REAL_DEMO_PUBLIC_CREDENTIAL_IDS, REAL_DEMO_QR_TOKENS),
+  ...Object.entries(DEMO_WALLET_QR_TOKENS),
+]);
+
+const PUBLIC_ID_BY_QR_TOKEN: ReadonlyMap<string, string> = new Map(
+  [...QR_TOKEN_BY_PUBLIC_ID].map(([publicId, token]) => [token, publicId]),
+);
+
+const PUBLIC_ID_BY_INTERNAL_ID: ReadonlyMap<string, string> = new Map([
+  ...zipFixturePairs(REAL_DEMO_CREDENTIAL_IDS, REAL_DEMO_PUBLIC_CREDENTIAL_IDS),
+  ...MOCK_CREDENTIALS.map(
+    (credential) => [credential.id, credential.credentialId] as [string, string],
+  ),
+]);
+
 const OWNERSHIP_KEY = 'securex_holder_ownership_v1';
 
 /**
@@ -136,12 +195,19 @@ export function resetOwnershipRegistry(): void {
 
 /** DEMO opaque QR token for a public credential ID (1:1 fixture mapping). */
 export function demoQrTokenForPublicId(publicId: string): string | undefined {
-  const idx = REAL_DEMO_PUBLIC_CREDENTIAL_IDS.indexOf(publicId);
-  return idx >= 0 ? REAL_DEMO_QR_TOKENS[idx] : undefined;
+  return QR_TOKEN_BY_PUBLIC_ID.get(publicId);
 }
 
 /** DEMO reverse mapping: opaque QR token -> public credential ID. */
 export function publicIdForDemoQrToken(token: string): string | undefined {
-  const idx = REAL_DEMO_QR_TOKENS.indexOf(token);
-  return idx >= 0 ? REAL_DEMO_PUBLIC_CREDENTIAL_IDS[idx] : undefined;
+  return PUBLIC_ID_BY_QR_TOKEN.get(token);
+}
+
+/**
+ * DEMO mapping: internal credential id (the route param the credential detail
+ * page passes) -> public verification id. Covers the on-chain seed ids and the
+ * offline wallet dataset. Public IDs are never derived from internal IDs.
+ */
+export function demoPublicIdForInternalId(internalId: string): string | undefined {
+  return PUBLIC_ID_BY_INTERNAL_ID.get(internalId);
 }

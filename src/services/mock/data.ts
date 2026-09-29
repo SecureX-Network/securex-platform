@@ -11,7 +11,6 @@ import type {
   Template,
   User,
   VerificationHistory,
-  VerificationResult,
 } from '@/types';
 
 export interface MockUser extends User {
@@ -88,6 +87,19 @@ export const MOCK_USERS: MockUser[] = [
     institutionId: 'inst-stanford',
     createdAt: iso(460),
     lastLoginAt: iso(0, 1),
+    password: 'Password123!',
+  },
+  {
+    id: 'usr-issuer-001',
+    email: 'cs-graduation@stanford.edu',
+    name: 'Priya Raghavan',
+    role: 'ISSUER',
+    // ISSUER is institution-scoped: the platform's `users` row carries no
+    // issuer_id, so this account is scoped to the institution (inst-stanford)
+    // and reaches every issuer registered under it.
+    institutionId: 'inst-stanford',
+    createdAt: iso(455),
+    lastLoginAt: iso(0, 3),
     password: 'Password123!',
   },
   {
@@ -791,6 +803,111 @@ export const MOCK_CREDENTIALS: Credential[] = [
   },
 ];
 
+/**
+ * DEMO credential mutations (issued / revoked during a walkthrough) are held in
+ * a module-level array above, which a page reload would throw away. In REAL mode
+ * these writes go to the platform database and are immediately visible to every
+ * verifier, so the DEMO runner has to behave the same way: without persistence,
+ * a credential an institution just issued reads as "not found" the moment the
+ * demo reloads or switches role, which breaks the issue -> verify -> revoke ->
+ * re-verify journey.
+ *
+ * The overlay re-applies those DEMO-only mutations on load. It is keyed by
+ * public/internal credential id and holds no personal data beyond what the DEMO
+ * dataset already contains. Production never reads it (DEMO mode fails closed).
+ */
+const DEMO_OVERLAY_KEY = 'securex_demo_credential_overlay_v1';
+
+interface DemoCredentialOverlay {
+  created: Credential[];
+  mutations: Array<{
+    id: string;
+    status: Credential['status'];
+    revokedAt?: string;
+    revokedReason?: string;
+  }>;
+}
+
+function emptyOverlay(): DemoCredentialOverlay {
+  return { created: [], mutations: [] };
+}
+
+function readDemoOverlay(): DemoCredentialOverlay {
+  try {
+    if (typeof localStorage === 'undefined') return emptyOverlay();
+    const raw = localStorage.getItem(DEMO_OVERLAY_KEY);
+    if (!raw) return emptyOverlay();
+    const parsed = JSON.parse(raw) as Partial<DemoCredentialOverlay>;
+    return {
+      created: Array.isArray(parsed.created) ? parsed.created : [],
+      mutations: Array.isArray(parsed.mutations) ? parsed.mutations : [],
+    };
+  } catch {
+    return emptyOverlay();
+  }
+}
+
+function writeDemoOverlay(overlay: DemoCredentialOverlay): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(DEMO_OVERLAY_KEY, JSON.stringify(overlay));
+  } catch {
+    /* storage unavailable: DEMO mutations stay in-memory for this session */
+  }
+}
+
+/** Record a credential issued during a DEMO session so it survives a reload. */
+export function recordDemoIssuedCredential(credential: Credential): void {
+  const overlay = readDemoOverlay();
+  overlay.created = [
+    ...overlay.created.filter((c) => c.id !== credential.id),
+    credential,
+  ];
+  writeDemoOverlay(overlay);
+}
+
+/** Record a status change (e.g. revoke) so it survives a reload. */
+export function recordDemoCredentialStatus(
+  credentialId: string,
+  status: Credential['status'],
+  extra: { revokedAt?: string; revokedReason?: string } = {},
+): void {
+  const overlay = readDemoOverlay();
+  const rest = overlay.mutations.filter((m) => m.id !== credentialId);
+  overlay.mutations = [...rest, { id: credentialId, status, ...extra }];
+  writeDemoOverlay(overlay);
+}
+
+/** Drop all DEMO mutations, returning the dataset to its shipped state. */
+export function resetDemoCredentialOverlay(): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(DEMO_OVERLAY_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+(() => {
+  const overlay = readDemoOverlay();
+  // Created credentials must be in the array BEFORE status mutations are applied,
+  // otherwise a credential issued and then revoked in the same DEMO session never
+  // receives its REVOKED status on the next load.
+  for (const created of overlay.created) {
+    const exists = MOCK_CREDENTIALS.some(
+      (c) => c.id === created.id || c.credentialId === created.credentialId,
+    );
+    if (!exists) MOCK_CREDENTIALS.push(created);
+  }
+  for (const mutation of overlay.mutations) {
+    const target = MOCK_CREDENTIALS.find(
+      (c) => c.id === mutation.id || c.credentialId === mutation.id,
+    );
+    if (target) Object.assign(target, mutation);
+  }
+})();
+
 export const MOCK_TRANSACTIONS: BlockchainTransaction[] = (() => {
   const txs: BlockchainTransaction[] = [];
   const types = [
@@ -829,52 +946,6 @@ export const MOCK_TRANSACTIONS: BlockchainTransaction[] = (() => {
   }
   return txs;
 })();
-
-function buildVerificationResult(
-  credential: Credential,
-  riskLevel: VerificationResult['fraudCheck']['riskLevel'],
-  score: number,
-  flags: string[],
-): VerificationResult {
-  const valid = credential.status === 'VALID';
-  const issuer = MOCK_ISSUERS.find((i) => i.id === credential.issuerId);
-  const institution = MOCK_INSTITUTIONS.find((i) => i.id === credential.institutionId);
-  const block = MOCK_BLOCKS[credential.credentialId.length % MOCK_BLOCKS.length]!;
-  return {
-    credentialId: credential.credentialId,
-    status: credential.status,
-    credential,
-    issuer: {
-      name: credential.institutionName,
-      verified: institution?.verified ?? false,
-      publicKey: issuer?.publicKey,
-    },
-    blockchainProof: {
-      verified: valid,
-      txHash: credential.blockchainTxHash,
-      blockHeight: block.height,
-      confirmations: valid ? 26 : 0,
-      timestamp: block.timestamp,
-    },
-    signatureVerification: {
-      valid: credential.status !== 'TAMPERED' && credential.status !== 'NOT_FOUND',
-      algorithm: 'Ed25519-SHA256',
-      verifiedAt: iso(0),
-    },
-    fraudCheck: { riskLevel, flags, score },
-    verifiedAt: iso(0),
-  };
-}
-
-export const MOCK_VERIFICATION_RESULTS: VerificationResult[] = [
-  buildVerificationResult(MOCK_CREDENTIALS[0]!, 'LOW', 8, ['No anomalies detected']),
-  buildVerificationResult(MOCK_CREDENTIALS[11]!, 'HIGH', 82, [
-    'Anomalous issuance pattern detected',
-    'Issuer signing key flagged for rotation',
-  ]),
-  buildVerificationResult(MOCK_CREDENTIALS[7]!, 'MEDIUM', 45, ['Credential has been revoked by the issuer']),
-  buildVerificationResult(MOCK_CREDENTIALS[8]!, 'MEDIUM', 38, ['Credential has exceeded its validity period']),
-];
 
 export const MOCK_VERIFICATION_HISTORY: VerificationHistory[] = [
   {
@@ -1109,6 +1180,17 @@ export const MOCK_AUDIT_EVENTS: AuditEvent[] = [
   },
 ];
 
+/**
+ * Notifications.
+ *
+ * `actionUrl` must be reachable by EVERY role, because the notification list is
+ * global — it is not filtered per user. `/credentials/*` and `/share` are
+ * HOLDER-only routes, so linking a notification there bounced every other role
+ * straight to /unauthorized. Every credential link below therefore points at the
+ * public verifier, /verify/<public credential id>, which any signed-in role can
+ * open, and the URL carries the public SX- id rather than the internal `cred-*`
+ * one.
+ */
 export const MOCK_NOTIFICATIONS: Notification[] = [
   {
     id: 'ntf-001',
@@ -1118,43 +1200,47 @@ export const MOCK_NOTIFICATIONS: Notification[] = [
     type: 'SUCCESS',
     read: false,
     createdAt: iso(0, 3),
-    actionUrl: '/holder/credentials/cred-001',
+    actionUrl: '/verify/SX-2F9C-A41B-8D7E',
   },
   {
     id: 'ntf-002',
     title: 'Share request',
-    message: 'Northwind Bank requested access to your Master of Business Administration credential.',
+    message:
+      'Northwind Bank requested access to a credential. Review your sharing settings to approve or decline.',
     type: 'INFO',
     read: false,
     createdAt: iso(0, 9),
-    actionUrl: '/holder/share',
+    actionUrl: '/account/settings',
   },
   {
     id: 'ntf-003',
-    title: 'Credential expiring',
-    message: 'Your Professional Certificate in Machine Learning expires in 30 days.',
+    title: 'Credential renewal window open',
+    message:
+      'A professional certificate in your institution is inside its renewal window. Review the credential to start the renewal request.',
     type: 'WARNING',
     read: true,
     createdAt: iso(1, 4),
-    actionUrl: '/holder/credentials/cred-003',
+    actionUrl: '/verify/SX-5E42-90F3-1B6C',
   },
   {
     id: 'ntf-004',
     title: 'New sign-in detected',
-    message: 'We detected a sign-in to your account from a new device. Review your recent activity.',
+    message:
+      'We detected a sign-in to your account from a new device. Review your recent activity.',
     type: 'ERROR',
     read: true,
     createdAt: iso(2),
-    actionUrl: '/holder/settings',
+    actionUrl: '/account/settings',
   },
   {
     id: 'ntf-005',
     title: 'Welcome to SecureX',
-    message: 'Your credential wallet is ready. Connect your first institution to import credentials.',
+    message:
+      'Your credential wallet is ready. Connect your first institution to import credentials.',
     type: 'SUCCESS',
     read: true,
     createdAt: iso(7),
-    actionUrl: '/holder/credentials',
+    actionUrl: '/account/settings',
   },
 ];
 

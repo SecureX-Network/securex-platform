@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Calendar,
-  Download,
-  Filter,
-} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Calendar, Download, Filter, Search } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -17,11 +14,17 @@ import {
   Table,
 } from '@/components/ui';
 import type { Column, SortDirection } from '@/components/ui';
+import { PageHeader } from '@/components/shared/PageHeader';
 import { useAuth } from '@/hooks/useAuth';
-import { getVerificationHistory } from '@/services/api/verificationService';
 import { formatDate } from '@/utils/format';
+import { toCsv, downloadCsv, csvFilename } from '@/utils/csv';
 import { getStatusBadgeVariant } from '@/utils/status';
-import type { VerificationHistory } from '@/types';
+import {
+  getScopedVerificationHistory,
+  type HistoryScope,
+  type VerificationHistoryRow,
+} from '@/features/verification/services/verificationHistoryService';
+import type { UserRole } from '@/types';
 
 const PAGE_SIZE = 10;
 
@@ -32,72 +35,113 @@ const methodVariant: Record<string, 'default' | 'info' | 'purple' | 'warning'> =
   LINK: 'warning',
 };
 
-export default function EmployerHistoryPage() {
-  const { user } = useAuth();
-  const employerId = user?.id ?? 'usr-employer-001';
+/**
+ * The platform records a verification against a credential, so the history a
+ * role sees is scoped by who owns that credential. Only EMPLOYER performs
+ * verifications, so for every other role the question being answered is
+ * "who has looked at my credentials?".
+ */
+const SCOPE_FOR_ROLE: Record<UserRole, HistoryScope> = {
+  EMPLOYER: 'performer',
+  HOLDER: 'holder',
+  INSTITUTION: 'issuer',
+  ISSUER: 'issuer',
+  ADMIN: 'holder',
+  SECURITY_ADMIN: 'holder',
+  NETWORK_ADMIN: 'holder',
+  AUDITOR: 'holder',
+  PUBLIC: 'performer',
+};
 
-  const [history, setHistory] = useState<VerificationHistory[]>([]);
+/** Plain-language framing for the table, per scope. */
+const FRAMING: Record<HistoryScope, { subtitle: string; holderColumn: string }> = {
+  performer: {
+    subtitle: 'Every credential you have verified, and the result the platform returned.',
+    holderColumn: 'Verified By',
+  },
+  holder: {
+    subtitle: 'Who has verified your credentials, and when.',
+    holderColumn: 'Holder',
+  },
+  issuer: {
+    subtitle: 'How verifiers have seen the credentials your institution issued.',
+    holderColumn: 'Holder',
+  },
+};
+
+export default function VerificationHistoryPage() {
+  const { user } = useAuth();
+  const role = user?.role ?? 'HOLDER';
+  const userId = user?.id ?? '';
+  const scope = SCOPE_FOR_ROLE[role];
+  const framing = FRAMING[scope];
+
+  const [rows, setRows] = useState<VerificationHistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortKey, setSortKey] = useState<string>('verifiedAt');
+  const [sortKey, setSortKey] = useState('verifiedAt');
   const [sortDir, setSortDir] = useState<SortDirection>('desc');
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
     setError(false);
     try {
-      const data = await getVerificationHistory(employerId);
-      setHistory(data);
+      setRows(await getScopedVerificationHistory(scope, userId));
     } catch {
       setError(true);
-      setHistory([]);
+      setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [employerId]);
+  }, [scope, userId]);
 
   useEffect(() => {
     void loadHistory();
   }, [loadHistory]);
 
   const filtered = useMemo(() => {
-    return history.filter((item) => {
-      const matchesStatus = statusFilter === 'ALL' || item.result === statusFilter;
-      const date = new Date(item.verifiedAt).getTime();
+    const needle = search.trim().toLowerCase();
+    return rows.filter((row) => {
+      const matchesSearch =
+        needle === '' ||
+        row.credentialTitle.toLowerCase().includes(needle) ||
+        row.credentialId.toLowerCase().includes(needle) ||
+        (row.holderName ?? '').toLowerCase().includes(needle) ||
+        (row.institutionName ?? '').toLowerCase().includes(needle);
+
+      const matchesStatus = statusFilter === 'ALL' || row.result === statusFilter;
+
+      const date = new Date(row.verifiedAt).getTime();
       const from = fromDate ? new Date(fromDate).getTime() : null;
-      const to = toDate ? new Date(toDate + 'T23:59:59').getTime() : null;
+      const to = toDate ? new Date(`${toDate}T23:59:59`).getTime() : null;
       const matchesFrom = from === null || date >= from;
       const matchesTo = to === null || date <= to;
-      return matchesStatus && matchesFrom && matchesTo;
+
+      return matchesSearch && matchesStatus && matchesFrom && matchesTo;
     });
-  }, [history, statusFilter, fromDate, toDate]);
+  }, [rows, search, statusFilter, fromDate, toDate]);
 
   const summary = useMemo(
     () => ({
-      total: history.length,
-      valid: history.filter((h) => h.result === 'VALID').length,
-      flagged: history.filter(
-        (h) =>
-          h.result === 'SUSPICIOUS' ||
-          h.result === 'SUSPENDED' ||
-          h.result === 'REVOKED' ||
-          h.result === 'TAMPERED',
+      total: rows.length,
+      valid: rows.filter((r) => r.result === 'VALID').length,
+      flagged: rows.filter(
+        (r) =>
+          r.result === 'SUSPICIOUS' ||
+          r.result === 'SUSPENDED' ||
+          r.result === 'REVOKED' ||
+          r.result === 'TAMPERED',
       ).length,
     }),
-    [history],
+    [rows],
   );
 
-  const summaryCards = [
-    { label: 'Total Verifications', value: summary.total },
-    { label: 'Valid', value: summary.valid },
-    { label: 'Flagged', value: summary.flagged },
-  ];
-
-  const columns: Column<VerificationHistory>[] = useMemo(
+  const columns: Column<VerificationHistoryRow>[] = useMemo(
     () => [
       {
         key: 'credentialTitle',
@@ -118,12 +162,21 @@ export default function EmployerHistoryPage() {
         className: 'px-4 py-3',
       },
       {
-        key: 'verifiedBy',
-        header: 'Holder',
+        key: scope === 'performer' ? 'verifiedBy' : 'holderName',
+        header: framing.holderColumn,
         sortable: true,
-        accessor: (row) => (
-          <span className="text-neutral-600">{row.verifiedBy}</span>
-        ),
+        sortValue: (row) => (scope === 'performer' ? row.verifiedBy : row.holderName),
+        accessor: (row) => {
+          // A verification record does not carry holder identity, and public
+          // verification never discloses it. Report that plainly rather than
+          // inventing a name.
+          const value = scope === 'performer' ? row.verifiedBy : row.holderName;
+          return value ? (
+            <span className="text-neutral-600">{value}</span>
+          ) : (
+            <span className="text-neutral-400 italic">Not disclosed</span>
+          );
+        },
         headerClassName: 'px-4 py-3',
         className: 'px-4 py-3',
       },
@@ -146,11 +199,7 @@ export default function EmployerHistoryPage() {
         sortable: true,
         sortValue: (row) => row.result,
         accessor: (row) => (
-          <Badge
-            variant={getStatusBadgeVariant(row.result)}
-            size="sm"
-            dot
-          >
+          <Badge variant={getStatusBadgeVariant(row.result)} size="sm" dot>
             {row.result}
           </Badge>
         ),
@@ -162,10 +211,7 @@ export default function EmployerHistoryPage() {
         header: 'Method',
         sortable: true,
         accessor: (row) => (
-          <Badge
-            variant={methodVariant[row.method] ?? 'default'}
-            size="sm"
-          >
+          <Badge variant={methodVariant[row.method] ?? 'default'} size="sm">
             {row.method.replace(/_/g, ' ')}
           </Badge>
         ),
@@ -173,19 +219,17 @@ export default function EmployerHistoryPage() {
         className: 'px-4 py-3',
       },
     ],
-    [],
+    [framing.holderColumn, scope],
   );
 
   const sorted = useMemo(() => {
     const column = columns.find((c) => c.key === sortKey);
-    if (!column || !column.sortable || !sortKey) return filtered;
+    if (!column?.sortable || !sortKey) return filtered;
     const accessor =
       column.sortValue ??
-      ((row: VerificationHistory) => {
+      ((row: VerificationHistoryRow) => {
         const value = (row as unknown as Record<string, unknown>)[column.key];
-        return typeof value === 'number' || typeof value === 'string'
-          ? value
-          : null;
+        return typeof value === 'number' || typeof value === 'string' ? value : null;
       });
     return [...filtered].sort((a, b) => {
       const av = accessor(a);
@@ -203,32 +247,33 @@ export default function EmployerHistoryPage() {
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const paginated = sorted.slice(
-    (safePage - 1) * PAGE_SIZE,
-    safePage * PAGE_SIZE,
-  );
+  const paginated = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const handleSortChange = useCallback(
-    (key: string, direction: SortDirection) => {
-      setSortKey(key);
-      setSortDir(direction);
-      setCurrentPage(1);
-    },
-    [],
-  );
+  const handleSortChange = useCallback((key: string, direction: SortDirection) => {
+    setSortKey(key);
+    setSortDir(direction);
+    setCurrentPage(1);
+  }, []);
+
+  // Exports every filtered row, not just the visible page, so the CSV matches
+  // the on-screen filters rather than silently truncating at PAGE_SIZE.
+  const handleExport = useCallback(() => {
+    const csv = toCsv<VerificationHistoryRow>(sorted, [
+      { header: 'Credential ID', value: (r) => r.credentialId },
+      { header: 'Credential', value: (r) => r.credentialTitle },
+      { header: 'Holder', value: (r) => r.holderName ?? 'Not disclosed' },
+      { header: 'Institution', value: (r) => r.institutionName ?? 'Not disclosed' },
+      { header: 'Result', value: (r) => r.result },
+      { header: 'Method', value: (r) => r.method },
+      { header: 'Verified at', value: (r) => formatDate(r.verifiedAt) },
+    ]);
+    downloadCsv(csvFilename('verification-history'), csv);
+  }, [sorted]);
 
   if (error) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-bold text-neutral-900">
-            Verification History
-          </h1>
-          <p className="text-sm text-neutral-500">
-            A complete audit trail of every credential your organization has
-            verified.
-          </p>
-        </div>
+        <PageHeader title="Verification History" subtitle={framing.subtitle} />
         <ErrorState
           title="Failed to load verification history"
           description="There was a problem loading your verification history. Please try again."
@@ -240,30 +285,26 @@ export default function EmployerHistoryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-neutral-900">
-            Verification History
-          </h1>
-          <p className="text-sm text-neutral-500">
-            A complete audit trail of every credential your organization has
-            verified.
-          </p>
-        </div>
+      <PageHeader title="Verification History" subtitle={framing.subtitle}>
         <Button
           variant="outline"
           size="sm"
           leftIcon={<Download className="h-4 w-4" />}
-          disabled
-          title="Export coming soon"
-          aria-label="Export verification history (coming soon)"
+          onClick={handleExport}
+          disabled={sorted.length === 0}
         >
           Export
         </Button>
-      </div>
+      </PageHeader>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {summaryCards.map((stat) => (
+        {(
+          [
+            { label: 'Total Verifications', value: summary.total },
+            { label: 'Valid', value: summary.valid },
+            { label: 'Flagged', value: summary.flagged },
+          ] as const
+        ).map((stat) => (
           <Card key={stat.label} padding="md">
             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
               {stat.label}
@@ -289,6 +330,7 @@ export default function EmployerHistoryPage() {
                 { label: 'Suspended', value: 'SUSPENDED' },
                 { label: 'Suspicious', value: 'SUSPICIOUS' },
                 { label: 'Tampered', value: 'TAMPERED' },
+                { label: 'Expired', value: 'EXPIRED' },
                 { label: 'Not Found', value: 'NOT_FOUND' },
               ]}
               value={statusFilter}
@@ -300,6 +342,21 @@ export default function EmployerHistoryPage() {
               className="w-36"
             />
           </div>
+
+          <div className="flex-1">
+            <Input
+              placeholder="Search by credential, holder, or institution…"
+              leftIcon={<Search className="h-4 w-4" />}
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
+              size="sm"
+              aria-label="Search verification history"
+            />
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             <Calendar className="h-4 w-4 text-neutral-400" aria-hidden="true" />
             <Input
@@ -347,7 +404,15 @@ export default function EmployerHistoryPage() {
               <EmptyState
                 compact
                 title="No verifications found"
-                description="Try adjusting your filters or date range."
+                description="Try adjusting your filters, or verify a credential to start building history."
+                action={
+                  <Link
+                    to="/verify-credential"
+                    className="text-sm font-semibold text-securex-600 hover:text-securex-700"
+                  >
+                    Verify a credential
+                  </Link>
+                }
               />
             }
           />

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Eye,
   FileText,
@@ -20,6 +21,7 @@ import { formatDate } from '@/utils/format';
 import type { Template } from '@/types';
 
 export default function InstitutionTemplatesPage() {
+  const navigate = useNavigate();
   const [previewing, setPreviewing] = useState<Template | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
@@ -120,10 +122,17 @@ export default function InstitutionTemplatesPage() {
                   >
                     Preview
                   </Button>
-                  <Button variant="ghost" size="sm" disabled title="Editing coming soon">
-                    Edit
-                  </Button>
                 </div>
+                <p className="mt-2 text-xs text-neutral-500">
+                  Use this template when you{' '}
+                  <Link
+                    to="/institution/issue"
+                    className="font-medium text-securex-700 hover:underline"
+                  >
+                    issue a credential
+                  </Link>
+                  .
+                </p>
               </Card>
             ))}
           </>
@@ -200,18 +209,20 @@ export default function InstitutionTemplatesPage() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         title="Create Template"
-        description="Design a new credential template."
+        description="Custom template builder is not part of this release."
         size="md"
         footer={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setShowCreate(false)}>
-              Cancel
+              Close
             </Button>
             <Button
-              disabled
-              title="Full template editor coming soon"
+              onClick={() => {
+                setShowCreate(false);
+                navigate('/institution/issue');
+              }}
             >
-              Create
+              Issue a credential
             </Button>
           </div>
         }
@@ -219,11 +230,12 @@ export default function InstitutionTemplatesPage() {
         <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-5 text-center">
           <LayoutTemplate className="mx-auto h-8 w-8 text-neutral-400" />
           <p className="mt-3 text-sm font-medium text-neutral-700">
-            Template editor coming soon
+            Template builder is not available in this release
           </p>
-          <p className="mt-1 text-xs text-neutral-500">
-            You&apos;ll be able to define custom fields, validation rules,
-            and credential metadata. This feature is under development.
+          <p className="mt-1 text-xs leading-relaxed text-neutral-500">
+            Defining custom fields, validation rules and credential metadata is
+            on the roadmap. The templates below are the definitions this release
+            issues against, and you can issue a credential from any of them now.
           </p>
         </div>
       </Modal>

@@ -253,7 +253,7 @@ export default function SecurityEventsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search action, actor, target, IP\u2026"
+          placeholder="Search action, actor, target, IP…"
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);

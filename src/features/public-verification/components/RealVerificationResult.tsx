@@ -1,18 +1,21 @@
 import type { ReactNode } from 'react';
 import {
   AlertTriangle,
-  BadgeCheck,
   CheckCircle2,
+  CircleSlash,
   FileSearch,
   HelpCircle,
-  Layers,
   ShieldAlert,
   ShieldCheck,
   Building2,
 } from 'lucide-react';
 import { Badge, Card } from '@/components/ui';
-import type { VerificationView } from '@/features/holder-admin/services/holderAdminService';
-import type { TamperCheckStatus } from '@/features/holder-admin/types/backend';
+import type {
+  DocumentIntegrityStatus,
+  VerificationCheckView,
+  VerificationStatus,
+  VerificationView,
+} from '@/features/holder-admin/services/holderAdminService';
 import { formatDate, truncateHash } from '@/utils';
 
 function Detail({
@@ -34,22 +37,22 @@ function Detail({
           mono ? 'font-mono text-xs text-neutral-600' : ''
         }`}
       >
-        {value ?? '—'}
+        {value ?? '\u2014'}
       </dd>
     </div>
   );
 }
 
-const tamperConfig: Record<
-  TamperCheckStatus,
-  { label: string; text: string; badge: 'success' | 'warning' | 'danger' }
+const integrityConfig: Record<
+  DocumentIntegrityStatus,
+  { label: string; badge: 'success' | 'danger' | 'warning' }
 > = {
-  EXACT: { label: 'Document matches the ledger', text: 'text-trust-700', badge: 'success' },
-  TAMPERED: { label: 'Document tampered', text: 'text-danger-700', badge: 'danger' },
-  UNVERIFIABLE: { label: 'Document integrity unverifiable', text: 'text-neutral-600', badge: 'warning' },
+  EXACT: { label: 'Document matches the platform record', badge: 'success' },
+  TAMPERED: { label: 'Document does not match the platform record', badge: 'danger' },
+  UNVERIFIABLE: { label: 'Document integrity not comparable', badge: 'warning' },
 };
 
-function statusTone(status: VerificationView['status']): {
+function statusTone(status: VerificationStatus): {
   title: string;
   icon: ReactNode;
   color: string;
@@ -63,6 +66,7 @@ function statusTone(status: VerificationView['status']): {
       };
     case 'REVOKED':
     case 'INVALID':
+    case 'TAMPERED':
       return {
         title: 'Credential is not valid',
         icon: <ShieldAlert className="h-8 w-8 text-danger-500" />,
@@ -71,6 +75,12 @@ function statusTone(status: VerificationView['status']): {
     case 'SUSPENDED':
       return {
         title: 'Credential suspended',
+        icon: <AlertTriangle className="h-8 w-8 text-warning-500" />,
+        color: 'bg-warning-50 text-warning-700',
+      };
+    case 'SUSPICIOUS':
+      return {
+        title: 'Credential flagged as suspicious',
         icon: <AlertTriangle className="h-8 w-8 text-warning-500" />,
         color: 'bg-warning-50 text-warning-700',
       };
@@ -86,7 +96,6 @@ function statusTone(status: VerificationView['status']): {
         icon: <HelpCircle className="h-8 w-8 text-neutral-400" />,
         color: 'bg-neutral-100 text-neutral-600',
       };
-    case 'UNVERIFIABLE':
     default:
       return {
         title: 'Credential could not be verified',
@@ -96,8 +105,70 @@ function statusTone(status: VerificationView['status']): {
   }
 }
 
+/**
+ * A check is only ever presented as passed when it actually ran and passed.
+ * `available: false` means SecureX does not implement the check at all, so it is
+ * labelled as not performed rather than as a failure or a pass.
+ */
+function checkPresentation(check: VerificationCheckView): {
+  label: string;
+  badge: 'success' | 'danger' | 'warning' | 'default';
+  icon: ReactNode;
+} {
+  if (check.status === 'NOT_FOUND') {
+    return {
+      label: 'No record',
+      badge: 'danger',
+      icon: <CircleSlash aria-hidden="true" className="h-3.5 w-3.5" />,
+    };
+  }
+  if (check.verified) {
+    return {
+      label: 'Checked',
+      badge: 'success',
+      icon: <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />,
+    };
+  }
+  if (!check.available) {
+    return {
+      label: 'Not performed',
+      badge: 'default',
+      icon: <HelpCircle aria-hidden="true" className="h-3.5 w-3.5" />,
+    };
+  }
+  return {
+    label: 'Not verified',
+    badge: 'warning',
+    icon: <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />,
+  };
+}
+
+function CheckRow({
+  title,
+  check,
+}: {
+  title: string;
+  check: VerificationCheckView;
+}) {
+  const presentation = checkPresentation(check);
+  return (
+    <li className="border-b border-neutral-100 py-3 last:border-b-0 last:pb-0 first:pt-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-neutral-900">{title}</span>
+        <Badge variant={presentation.badge} icon={presentation.icon}>
+          {presentation.label}
+        </Badge>
+      </div>
+      <p className="mt-1 text-sm text-neutral-500">{check.detail}</p>
+    </li>
+  );
+}
+
 export function RealVerificationResult({ result }: { result: VerificationView }) {
   const tone = statusTone(result.status);
+  const integrity = result.documentIntegrity;
+  const statusDerivedFromExpiry =
+    result.storedStatus !== result.status && result.status === 'EXPIRED';
 
   return (
     <div className="space-y-5">
@@ -111,76 +182,101 @@ export function RealVerificationResult({ result }: { result: VerificationView })
                 <span className="font-mono text-xs">{result.credentialId}</span>
               </div>
               <div className="mt-2">
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.color}`}>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.color}`}
+                >
                   {result.status}
                 </span>
               </div>
             </div>
           </div>
-          {result.verifiedAt && (
-            <div className="shrink-0 text-left text-xs text-neutral-500 sm:text-right">
-              <div>
-                Verified{' '}
-                <span className="font-medium text-neutral-700">
-                  {formatDate(result.verifiedAt, {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </span>
-              </div>
-            </div>
-          )}
+          <div className="shrink-0 text-left text-xs text-neutral-500 sm:text-right">
+            Verified{' '}
+            <span className="font-medium text-neutral-700">
+              {formatDate(result.verifiedAt, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          </div>
         </div>
         {result.message && (
           <p className="mt-3 text-sm text-neutral-600">{result.message}</p>
         )}
       </Card>
 
-      {result.documentHashCheck ? (
+      <Card title="Credential record" bodyClassName="pt-4">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          <Detail label="Issuing organisation" value={result.issuerName ?? 'Unknown'} />
+          <Detail label="Recorded status" value={result.storedStatus} />
+          <Detail
+            label="Issued"
+            value={result.issuedAt ? formatDate(result.issuedAt) : 'Unknown'}
+          />
+          <Detail
+            label="Expires"
+            value={result.expiresAt ? formatDate(result.expiresAt) : 'No expiry recorded'}
+          />
+          <Detail
+            label="Revoked"
+            value={result.revokedAt ? formatDate(result.revokedAt) : 'Not revoked'}
+          />
+          {statusDerivedFromExpiry && (
+            <Detail
+              label="Effective status"
+              value="EXPIRED (derived from the expiration date on the record)"
+            />
+          )}
+        </dl>
+      </Card>
+
+      <Card
+        title="What was checked"
+        description="Only the checks listed here were actually performed for this credential."
+        bodyClassName="pt-4"
+      >
+        <ul>
+          <CheckRow title="Credential record" check={result.checks.credentialRecord} />
+          <CheckRow title="Blockchain proof" check={result.checks.blockchainProof} />
+          <CheckRow title="Digital signature" check={result.checks.signature} />
+        </ul>
+      </Card>
+
+      {integrity ? (
         <Card title="Document integrity check" bodyClassName="pt-4">
-          <div className="mb-4 flex items-center gap-2">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
             <Badge
-              variant={tamperConfig[result.documentHashCheck.status].badge}
+              variant={integrityConfig[integrity.status].badge}
               icon={
-                result.documentHashCheck.status === 'TAMPERED' ? (
+                integrity.status === 'TAMPERED' ? (
                   <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />
-                ) : result.documentHashCheck.status === 'EXACT' ? (
+                ) : integrity.status === 'EXACT' ? (
                   <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />
                 ) : (
                   <HelpCircle aria-hidden="true" className="h-3.5 w-3.5" />
                 )
               }
             >
-              {tamperConfig[result.documentHashCheck.status].label}
+              {integrityConfig[integrity.status].label}
             </Badge>
+            <span className="text-xs text-neutral-400">Scope: platform record</span>
           </div>
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
             <Detail
               label="Hash in document"
-              value={truncateHash(result.documentHashCheck.suppliedHash, 14, 10)}
+              value={truncateHash(integrity.suppliedHash, 14, 10)}
               mono
             />
             <Detail
-              label="Hash on ledger"
-              value={
-                result.documentHashCheck.anchoredHash
-                  ? truncateHash(result.documentHashCheck.anchoredHash, 14, 10)
-                  : 'Unavailable'
-              }
-              mono
+              label="Matches platform record"
+              value={integrity.hashMatch ? 'Yes' : 'No'}
             />
-            <Detail
-              label="Match"
-              value={result.documentHashCheck.hashMatch ? 'Yes' : 'No'}
-            />
-            <Detail
-              label="Checked at"
-              value={formatDate(result.documentHashCheck.verifiedAt)}
-            />
+            <Detail label="Checked at" value={formatDate(integrity.verifiedAt)} />
           </dl>
+          <p className="mt-3 text-sm text-neutral-500">{integrity.detail}</p>
         </Card>
       ) : (
         <Card>
@@ -188,112 +284,25 @@ export function RealVerificationResult({ result }: { result: VerificationView })
             <FileSearch className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400" />
             <div>
               <h2 className="text-sm font-semibold text-neutral-900">
-                On-ledger status verified
+                No document hash was supplied
               </h2>
               <p className="mt-1 text-sm text-neutral-500">
-                This result reflects the credential&apos;s authoritative state on the
-                SecureX ledger. To additionally confirm the integrity of an actual
-                document, collapse the document&apos;s hash (sha256) and run a tamper
-                check.
+                This result confirms the status held on the SecureX Platform record only.
+                To additionally check a document you hold, supply its hash (sha256) below;
+                the comparison is made against the hash reference stored on the platform
+                record and is not a blockchain or signature proof.
               </p>
             </div>
           </div>
         </Card>
       )}
-
-      <Card title="Issuer & signature" bodyClassName="pt-4">
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-          <Detail label="Issuer" value={result.issuer?.name} />
-          <Detail label="Issuer ID" value={result.issuer?.issuerId} mono />
-          <Detail
-            label="Issuer public key"
-            value={truncateHash(result.issuer?.publicKey, 16, 12)}
-            mono
-          />
-          <Detail label="Issuer status" value={result.issuer?.status} />
-          <Detail label="Issuer signature" value={result.issuerSignatureValid ? 'Valid' : 'Invalid'} />
-          <Detail label="Issuer key status" value={result.keyStatus ?? '—'} />
-        </dl>
-      </Card>
-
-      {result.securityChecks && Object.keys(result.securityChecks).length > 0 && (
-        <Card title="Security checks" bodyClassName="pt-4">
-          <ul className="space-y-2">
-            {Object.entries(result.securityChecks).map(([key, pass]) => (
-              <li key={key} className="flex items-center gap-2 text-sm text-neutral-700">
-                {pass ? (
-                  <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0 text-trust-500" />
-                ) : (
-                  <ShieldAlert aria-hidden="true" className="h-4 w-4 shrink-0 text-danger-500" />
-                )}
-                <span className="capitalize">
-                  {key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <Card title="Blockchain proof" bodyClassName="pt-4">
-        {result.transaction || result.block ? (
-          <>
-            <div className="mb-4 flex items-center gap-2">
-              <Badge
-                variant={result.status === 'VALID' ? 'success' : result.status === 'REVOKED' || result.status === 'INVALID' || result.status === 'NOT_FOUND' ? 'danger' : 'warning'}
-                icon={
-                  result.status === 'VALID' ? (
-                    <BadgeCheck aria-hidden="true" className="h-3.5 w-3.5" />
-                  ) : (
-                    <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />
-                  )
-                }
-              >
-                {result.status === 'VALID' ? 'Anchored to SecureX ledger' : 'Recorded on SecureX ledger'}
-              </Badge>
-            </div>
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-              <Detail label="Transaction" value={result.transaction?.id} mono />
-              <Detail label="Transaction type" value={result.transaction?.type} />
-              <Detail label="Block height" value={result.transaction?.blockHeight ?? result.block?.height} mono />
-              <Detail label="Block hash" value={truncateHash(result.block?.hash ?? result.transaction?.blockHash, 14, 10)} mono />
-              <Detail label="Proposer" value={result.block?.proposer} mono />
-              <Detail
-                label="Block timestamp"
-                value={result.block?.timestamp ? formatDate(result.block.timestamp) : '—'}
-              />
-            </dl>
-            {result.credentialHash && (
-              <div className="mt-4 flex items-center gap-1.5 border-t border-neutral-100 pt-3 text-xs text-neutral-400">
-                <Layers aria-hidden="true" className="h-3.5 w-3.5" />
-                Hash: <span className="font-mono">{truncateHash(result.credentialHash, 14, 10)}</span>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="flex items-start gap-3">
-            <FileSearch className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400" />
-            <div>
-              <h2 className="text-sm font-semibold text-neutral-900">
-                No on-ledger record available
-              </h2>
-              <p className="mt-1 text-sm text-neutral-500">
-                The SecureX ledger returned no blockchain record for this credential
-                (it may not exist on the chain, or it may have been revoked or
-                suspended without a block reference). Only the credential details
-                above are shown.
-              </p>
-            </div>
-          </div>
-        )}
-      </Card>
 
       <div className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-4">
         <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-securex-600" />
         <div className="text-sm text-neutral-600">
-          <span className="font-medium text-neutral-800">Proof is reference-only.</span>{' '}
-          Verification carries the credential identifier and ledger proof; it never sends
-          or stores holder PII or document contents.
+          <span className="font-medium text-neutral-800">Verification is reference-only.</span>{' '}
+          Verification carries the credential identifier only; it never sends or stores
+          holder personal data or document contents.
         </div>
       </div>
     </div>

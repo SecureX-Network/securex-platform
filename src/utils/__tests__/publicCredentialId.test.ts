@@ -100,3 +100,33 @@ describe('parseSecureXQr', () => {
     }
   });
 });
+
+/**
+ * Regression guard for the share/detail QR.
+ *
+ * The holder-facing pages used to render the QR from `verificationUrl`
+ * (`<origin>/verify/<id>`) while the scanner only accepts the opaque
+ * `SXQR1.*` payload. Every QR the app produced was therefore unscannable by
+ * the app's own verifier — it failed with "not a SecureX QR code". These
+ * assertions pin the two values to their distinct, correct jobs so the two
+ * cannot be swapped again.
+ */
+describe('QR reference fields are not interchangeable', () => {
+  const OPAQUE = `${SECUREX_QR_PREFIX}.tok3n.1780000000000.v1.${'a'.repeat(128)}`;
+  const VERIFICATION_URL = 'https://securex.example/verify/SX-2F9C-A41B-8D7E';
+
+  it('accepts the qrContent payload a share page renders', () => {
+    const parsed = parseSecureXQr(OPAQUE);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.payload).toBe(OPAQUE);
+  });
+
+  it('rejects the verificationUrl a share page links to', () => {
+    // This is the exact mismatch that shipped: a URL-encoded QR. The scanner
+    // must keep refusing it, because resolving an arbitrary URL as a
+    // credential is exactly what the opaque payload exists to prevent.
+    const parsed = parseSecureXQr(VERIFICATION_URL);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('not-secure-x');
+  });
+});

@@ -57,7 +57,9 @@ const MOCK_SERVICE_HEALTH: SecurityServiceHealth[] = [
     status: 'OPERATIONAL',
     lastChecked: new Date().toISOString(),
     responseTimeMs: 87,
-    description: 'Distributed ledger for immutable credential records',
+    // Not "immutable": this release runs a single permissioned node with a
+    // tamper-evident audit trail, not a distributed consensus ledger.
+    description: 'Permissioned credential ledger with tamper-evident records',
   },
   {
     name: 'Verification Engine',

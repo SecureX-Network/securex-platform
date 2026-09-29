@@ -102,12 +102,11 @@ export default function HolderWalletPage() {
               title={credential.title}
               credentialType={credential.type}
               issuer={credential.institutionName}
-              issuerVerified
               status={credential.status}
               issuedAt={credential.issuedAt}
               expiresAt={credential.expiresAt}
               credentialId={credential.credentialId}
-              onClick={() => navigate(`/holder/credentials/${credential.id}`)}
+              onClick={() => navigate(`/credentials/${credential.id}`)}
             />
           ))}
         </div>
@@ -124,7 +123,7 @@ export default function HolderWalletPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => navigate('/holder/share')}
+            onClick={() => navigate('/share')}
             className="inline-flex items-center gap-2 rounded-lg bg-securex-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-securex-700"
           >
             <Share2 className="h-4 w-4" aria-hidden="true" />

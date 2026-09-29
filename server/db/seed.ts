@@ -93,6 +93,7 @@ export async function seedIfEmpty(): Promise<void> {
       ['usr-network-001', 'network@securex.io', 'Taylor Brooks', 'NETWORK_ADMIN', null, iso(500), iso(1)],
       ['usr-auditor-001', 'auditor@securex.io', 'Casey Lin', 'AUDITOR', null, iso(480), iso(2, 3)],
       ['usr-inst-001', 's.chen@stanford.edu', 'Sarah Chen', 'INSTITUTION', 'inst-stanford', iso(460), iso(0, 1)],
+      ['usr-issuer-001', 'cs-graduation@stanford.edu', 'Priya Raghavan', 'ISSUER', 'inst-stanford', iso(455), iso(0, 3)],
       ['usr-employer-001', 'marcus.johnson@acme.com', 'Marcus Johnson', 'EMPLOYER', null, iso(420), iso(0, 6)],
       ['usr-holder-001', 'emily.rodriguez@example.com', 'Emily Rodriguez', 'HOLDER', null, iso(450), iso(0, 4)],
       ['usr-holder-002', 'daniel.kim@example.com', 'Daniel Kim', 'HOLDER', null, iso(430), iso(1, 2)],

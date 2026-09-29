@@ -1,46 +1,32 @@
 import { Router, Request, Response } from 'express';
 import { all, get, run } from '../db/database.js';
 import {
-  mapCredentialRow,
   mapVerificationHistoryRow,
   type CredentialRow,
   type VerificationHistoryRow,
 } from '../db/mappers.js';
+import {
+  toPublicNotFoundDto,
+  toPublicVerificationDto,
+  type PublicVerificationDto,
+} from '../dto/publicVerification.js';
 import { fail, ok, param } from '../utils/http.js';
 import { entityId } from '../utils/ids.js';
-import { serverConfig } from '../config.js';
 
 export const verificationsRouter = Router();
 
-interface RiskProfile {
-  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  score: number;
-  flags: string[];
-}
-
-function riskForStatus(status: string): RiskProfile {
-  switch (status) {
-    case 'VALID':
-      return { riskLevel: 'LOW', score: 9, flags: ['No anomalies detected'] };
-    case 'REVOKED':
-      return { riskLevel: 'HIGH', score: 74, flags: ['Credential has been revoked by the issuer'] };
-    case 'SUSPENDED':
-      return { riskLevel: 'MEDIUM', score: 55, flags: ['Credential temporarily suspended pending review'] };
-    case 'EXPIRED':
-      return { riskLevel: 'MEDIUM', score: 41, flags: ['Credential has exceeded its validity period'] };
-    case 'TAMPERED':
-      return {
-        riskLevel: 'CRITICAL',
-        score: 96,
-        flags: ['Digital signature mismatch detected', 'Hash verification failed'],
-      };
-    case 'SUSPICIOUS':
-      return { riskLevel: 'HIGH', score: 82, flags: ['Anomalous issuance pattern detected'] };
-    default:
-      return { riskLevel: 'HIGH', score: 90, flags: ['Could not verify credential integrity'] };
-  }
-}
-
+/**
+ * Public credential verification.
+ *
+ * This endpoint is unauthenticated, so it serves ONLY the dedicated public DTO
+ * (server/dto/publicVerification.ts). It intentionally does not use
+ * mapCredentialRow: the internal credential id, holder identity, metadata,
+ * signature, Merkle root, internal institution/issuer ids and fraud internals
+ * are never included in a public verification response.
+ *
+ * Authenticated institution/admin surfaces that legitimately need those fields
+ * keep using /api/credentials and /api/admin/*, which are unchanged.
+ */
 async function credentialByPublicId(credentialId: string): Promise<CredentialRow | undefined> {
   return get<CredentialRow>(
     `SELECT c.id, c.credential_id, c.type, c.title, c.description, c.holder_name, c.holder_id,
@@ -71,7 +57,7 @@ async function recordVerification(
     credentialRowId ?? null,
     credentialTitle,
     new Date().toISOString(),
-    serverConfig.dataMode === 'real' ? 'Web Verification Portal' : 'Web Verification Portal',
+    'Web Verification Portal',
     result,
     method,
     null,
@@ -82,93 +68,18 @@ function isValidSha256Hex(hash: string): boolean {
   return /^[\da-f]{64}$/i.test(hash);
 }
 
-async function buildVerification(credentialId: string, documentHash?: string) {
+async function buildVerification(credentialId: string, documentHash?: string): Promise<PublicVerificationDto> {
   const row = await credentialByPublicId(credentialId);
   const verifiedAt = new Date().toISOString();
 
   if (!row) {
     await recordVerification(credentialId, undefined, 'Unknown', 'NOT_FOUND', 'API');
-    return {
-      credentialId,
-      status: 'NOT_FOUND',
-      issuer: { name: 'Unknown', verified: false },
-      blockchainProof: { verified: false },
-      signatureVerification: { valid: false },
-      fraudCheck: {
-        riskLevel: 'HIGH',
-        score: 92,
-        flags: ['Credential ID not found on distributed ledger'],
-      },
-      verifiedAt,
-      documentHashCheck: undefined,
-    };
+    return toPublicNotFoundDto(credentialId, verifiedAt);
   }
 
-  const blocks = await all<{ height: number; timestamp: string }>(
-    'SELECT height, timestamp FROM blocks ORDER BY height ASC',
-  );
-  const block = blocks[row.credential_id.length % blocks.length] ?? blocks[0];
-  const isValid = row.status === 'VALID';
-  const risk = riskForStatus(row.status);
-
-  await recordVerification(row.credential_id, row.id, row.title, row.status, 'API');
-
-  const signatureVerification = {
-    valid: row.status !== 'TAMPERED' && row.status !== 'NOT_FOUND',
-    algorithm: 'Ed25519-SHA256',
-    verifiedAt,
-  };
-  const fraudCheck = { ...risk };
-
-  let documentHashCheck: {
-    credentialId: string;
-    suppliedHash: string;
-    anchoredHash: string | null;
-    hashMatch: boolean;
-    status: 'EXACT' | 'TAMPERED' | 'UNVERIFIABLE';
-    verifiedAt: string;
-  } | undefined;
-
-  if (documentHash) {
-    const anchoredHash = row.merkle_root;
-    const hashMatch =
-      anchoredHash != null &&
-      documentHash.toLowerCase() === anchoredHash.toLowerCase();
-    documentHashCheck = {
-      credentialId: row.credential_id,
-      suppliedHash: documentHash,
-      anchoredHash: anchoredHash ?? null,
-      hashMatch,
-      status: hashMatch ? 'EXACT' : 'TAMPERED',
-      verifiedAt,
-    };
-    if (!hashMatch) {
-      signatureVerification.valid = false;
-      fraudCheck.flags = [...fraudCheck.flags, 'Hash verification failed — document does not match the ledger record'];
-    }
-  }
-
-  return {
-    credentialId: row.credential_id,
-    status: row.status,
-    credential: mapCredentialRow(row),
-    issuer: {
-      name: row.institution_name ?? row.institution_id,
-      verified: true,
-      publicKey: undefined,
-    },
-    blockchainProof: {
-      verified: isValid,
-      txHash: row.tx_hash,
-      blockHeight: block?.height,
-      confirmations: isValid ? 26 : 0,
-      timestamp: block?.timestamp,
-    },
-    signatureVerification,
-    fraudCheck,
-    verifiedAt,
-    documentHashCheck,
-  };
+  const dto = toPublicVerificationDto({ row, documentHash, verifiedAt });
+  await recordVerification(row.credential_id, row.id, row.title, dto.status, 'API');
+  return dto;
 }
 
 verificationsRouter.get('/', (req: Request, res: Response) => {

@@ -1,5 +1,10 @@
 import { IS_MOCK } from '@/constants';
-import { MOCK_CREDENTIALS, mockDelay } from '@/services/mock';
+import {
+  MOCK_CREDENTIALS,
+  mockDelay,
+  recordDemoCredentialStatus,
+  recordDemoIssuedCredential,
+} from '@/services/mock';
 import type { Credential } from '@/types';
 import { fetchAPI, unwrapResponse } from './client';
 
@@ -104,6 +109,7 @@ export async function issueCredential(data: IssueCredentialData): Promise<Creden
       metadata: data.metadata,
     };
     MOCK_CREDENTIALS.push(credential);
+    recordDemoIssuedCredential(credential);
     return credential;
   }
   const response = await fetchAPI<Credential>('/credentials', {
@@ -125,6 +131,10 @@ export async function revokeCredential(id: string): Promise<void> {
     credential.status = 'REVOKED';
     credential.revokedAt = new Date().toISOString();
     credential.revokedReason = 'Revoked by issuer';
+    recordDemoCredentialStatus(credential.id, 'REVOKED', {
+      revokedAt: credential.revokedAt,
+      revokedReason: credential.revokedReason,
+    });
     return;
   }
   await fetchAPI<void>(`/credentials/${id}/revoke`, { method: 'POST' });

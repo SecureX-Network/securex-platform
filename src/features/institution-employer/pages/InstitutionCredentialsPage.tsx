@@ -24,8 +24,9 @@ import {
 } from '@/components/ui';
 
 import { useAuth } from '@/hooks/useAuth';
-import { getCredentials } from '@/services/api/credentialService';
+import { getCredentials, revokeCredential } from '@/services/api/credentialService';
 import { formatDate } from '@/utils/format';
+import { toCsv, downloadCsv, csvFilename } from '@/utils/csv';
 import { getStatusBadgeVariant } from '@/utils/status';
 import type { Credential } from '@/types';
 
@@ -44,6 +45,10 @@ export default function InstitutionCredentialsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [revokeNotice, setRevokeNotice] = useState<string | null>(null);
+
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -61,6 +66,32 @@ export default function InstitutionCredentialsPage() {
       setLoading(false);
     }
   }, [institutionId]);
+
+  const confirmRevoke = useCallback(async () => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setRevoking(true);
+    setRevokeError(null);
+    try {
+      await Promise.all(ids.map((id) => revokeCredential(id)));
+      setSelected(new Set());
+      setShowRevokeConfirm(false);
+      setRevokeNotice(
+        `${ids.length} credential${ids.length > 1 ? 's' : ''} revoked. Verifiers now see the REVOKED status for ${
+          ids.length > 1 ? 'these credentials' : 'this credential'
+        }.`,
+      );
+      await loadData();
+    } catch (err) {
+      setRevokeError(
+        err instanceof Error
+          ? err.message
+          : 'Could not revoke the selected credentials. Please try again.',
+      );
+    } finally {
+      setRevoking(false);
+    }
+  }, [selected, loadData]);
 
   useEffect(() => {
     void loadData();
@@ -84,6 +115,21 @@ export default function InstitutionCredentialsPage() {
       return matchesSearch && matchesStatus && matchesType;
     });
   }, [credentials, search, statusFilter, typeFilter]);
+
+  // Exports every filtered credential, not just the visible page.
+  const handleExport = useCallback(() => {
+    const csv = toCsv<Credential>(filtered, [
+      { header: 'Credential ID', value: (c) => c.credentialId },
+      { header: 'Title', value: (c) => c.title },
+      { header: 'Type', value: (c) => c.type },
+      { header: 'Holder', value: (c) => c.holderName },
+      { header: 'Institution', value: (c) => c.institutionName },
+      { header: 'Status', value: (c) => c.status },
+      { header: 'Issued at', value: (c) => formatDate(c.issuedAt) },
+      { header: 'Expires at', value: (c) => (c.expiresAt ? formatDate(c.expiresAt) : 'Never') },
+    ]);
+    downloadCsv(csvFilename('institution-credentials'), csv);
+  }, [filtered]);
 
   const totalPages = Math.max(
     1,
@@ -194,12 +240,47 @@ export default function InstitutionCredentialsPage() {
             variant="outline"
             size="sm"
             leftIcon={<Download className="h-4 w-4" />}
+            onClick={handleExport}
+            disabled={filtered.length === 0}
             className="rounded-xl border-neutral-200 bg-white shadow-sm transition-all hover:border-securex-200 hover:bg-securex-50/40"
           >
             Export
           </Button>
         </div>
       </section>
+
+      {revokeNotice && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-xl border border-trust-200 bg-trust-50 px-4 py-3 text-sm text-trust-800"
+        >
+          <FileCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p>{revokeNotice}</p>
+          <button
+            type="button"
+            onClick={() => setRevokeNotice(null)}
+            className="ml-auto shrink-0 text-xs font-semibold text-trust-700 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {revokeError && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-800"
+        >
+          <p>{revokeError}</p>
+          <button
+            type="button"
+            onClick={() => setRevokeError(null)}
+            className="ml-auto shrink-0 text-xs font-semibold text-danger-700 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* ================================================== */}
       {/* SUMMARY STRIP */}
@@ -539,13 +620,13 @@ export default function InstitutionCredentialsPage() {
       <Dialog
         open={showRevokeConfirm}
         title="Revoke credentials"
-        message={`You selected ${selected.size} credential${selected.size > 1 ? 's' : ''} for revocation. Automatic revocation is not yet available — this action is being rolled out soon and won't modify any credentials yet.`}
-        variant="info"
-        confirmLabel="Got it"
+        message={`You selected ${selected.size} credential${selected.size > 1 ? 's' : ''}. Revoking is permanent: the status becomes REVOKED on the platform record and every verifier, including the public verification page, will report it as revoked. This does not delete the credential or its history.`}
+        variant="danger"
+        confirmLabel="Revoke"
         cancelLabel="Cancel"
+        confirmLoading={revoking}
         onConfirm={() => {
-          setShowRevokeConfirm(false);
-          setSelected(new Set());
+          void confirmRevoke();
         }}
         onCancel={() => setShowRevokeConfirm(false)}
       />

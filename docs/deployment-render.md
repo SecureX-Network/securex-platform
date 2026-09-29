@@ -35,9 +35,10 @@ only JSON APIs.
   regenerates a fresh node identity and the chain re-initialises from genesis.
   Treat the chain as a demo/reset-on-redeploy ledger on this plan.
 - **Free Postgres expires 30 days after creation** (1 GB, no backups). After
-  expiry you have 14 days to upgrade before deletion. The API is self-healing:
-  `SEED_ON_BOOT=true` recreates schema + canonical seed data on a fresh
-  database (idempotent — never overwrites existing rows).
+  expiry you have 14 days to upgrade before deletion. The schema is always
+  recreated on boot (idempotent — never overwrites existing rows), but the
+  canonical demo seed is OFF in production by default; a real deployment must
+  not auto-create the `Password123!` privileged accounts.
 - **No private networking into free web services.** Free instances can send
   private requests (e.g. to the database) but cannot receive them, so the
   blockchain and fraud engine are public web services and the Platform API
@@ -123,16 +124,77 @@ The render CLI cannot apply/sync Blueprints, so this runs in the dashboard:
 Set these on the app-role deployment of the monorepo frontend:
 
 ```
-VITE_API_BASE_URL          = https://api-securex.sp-net.in/api
-VITE_BLOCKCHAIN_API_URL    = https://securex-blockchain-XXXX.onrender.com
-VITE_USE_MOCK              = false
+VITE_API_BASE_URL   = https://api-securex.sp-net.in/api
+VITE_USE_MOCK       = false
 ```
 
-`VITE_FRAUD_ENGINE_URL` has no frontend consumers — the fraud engine is only
-probed by the Platform API backend. Never put secrets in `VITE_*` vars (they
-ship to the browser).
+`VITE_API_BASE_URL` is **required and fails closed**. The check lives in client
+source, so it runs in the **browser**, not during `vite build`: a bundle built
+without it still compiles, then renders a blank app with this in the console —
 
-## 7. Verify
+```
+[config] FATAL: VITE_API_BASE_URL is required in a production build. …
+```
+
+— rather than shipping a bundle that silently points at
+`http://localhost:4000/api`. A non-absolute URL and any plaintext `http://`
+value are refused the same way. Set it for **all** Vercel environments
+(Production, Preview, Development) — a preview deploy is a production-mode
+`vite build` too, and a blank Preview is easy to mistake for a broken deploy.
+
+Because the failure surfaces at page load rather than at build time, **smoke-test
+the deployed app after the first production deploy** (step 8) rather than
+trusting a green build.
+
+There is deliberately **no** `VITE_BLOCKCHAIN_API_URL`, `VITE_FRAUD_ENGINE_URL`,
+or `VITE_BLOCKCHAIN_AUTH_TOKEN`. The browser never addresses those services and
+must never hold a service credential: every chain operation is proxied
+server-side by the Platform API, which authorizes the caller first. Never put
+secrets in `VITE_*` vars at all (they ship to the browser).
+
+## 7. Create the first ADMIN (one-time)
+
+With `SEED_ON_BOOT=false` a fresh production database has **zero users**, and
+public registration intentionally cannot mint a privileged role — it allows only
+`HOLDER`, `INSTITUTION`, `ISSUER`, `EMPLOYER`. So the first administrator is
+created deliberately, once, by a server-side command. There is no HTTP route and
+no way to trigger this from the browser.
+
+1. Generate a strong secret and add these to `securex-api` → **Environment**
+   (then **Save Changes**, which redeploys):
+   ```
+   BOOTSTRAP_ADMIN_SECRET     = <>= 32 chars, random>
+   BOOTSTRAP_ADMIN_EMAIL      = admin@sp-net.in
+   BOOTSTRAP_ADMIN_NAME       = Platform Administrator
+   BOOTSTRAP_ADMIN_PASSWORD   = <a strong password>
+   ```
+2. Open `securex-api` → **Shell** and run the command, supplying the same secret
+   as proof of possession:
+   ```
+   BOOTSTRAP_ADMIN_TOKEN=<the same value as BOOTSTRAP_ADMIN_SECRET> \
+     npm run bootstrap:admin
+   ```
+   The command applies the (idempotent) schema first, so a completely fresh
+   database is fine. It prints the new account id and email, and exits 0.
+3. **Verify** the account works: `npm run bootstrap:admin` a second time now
+   exits 1 with `ADMIN_ALREADY_EXISTS`. That refusal is the durable one-time
+   guard — it lives in the database, not in the process, so it also blocks a
+   replayed secret later and cannot be side-stepped by first disabling the
+   account. Confirm login through the app.
+4. **Clean up.** Delete `BOOTSTRAP_ADMIN_TOKEN`, `BOOTSTRAP_ADMIN_SECRET` and
+   `BOOTSTRAP_ADMIN_PASSWORD` from the service environment and save. The guard
+   already prevents a second bootstrap, but the credentials should not sit in the
+   environment afterwards. Any further administrators are created from the admin
+   UI.
+
+Refusals are explicit and never log a secret, password, or hash: incomplete
+credentials, an invalid email, a password outside 8–128 characters, a
+missing/short secret, a wrong or absent `BOOTSTRAP_ADMIN_TOKEN` (compared in
+constant time), and an existing `ADMIN`. The one-time guard is checked *after*
+the secret, so an unauthenticated caller cannot use the command to discover
+whether an administrator already exists.
+
+## 8. Verify
 
 ```bash
 curl https://api-securex.sp-net.in/api/health            # ok, database connected, downstreams UP
@@ -142,11 +204,21 @@ curl https://<fraud-engine>.onrender.com/ready            # {status:"ready"}
 curl https://<fraud-engine>.onrender.com/health           # HealthResponse
 ```
 
-Then in the app: log in → issue a credential (SX- ID) → verify → open the
-ledger explorer (blocks/height feed from the blockchain service) → verify a
-revoked credential shows `REVOKED`.
+```bash
+# CORS: the deployed app origin is allowed, an arbitrary origin is not.
+curl -sI -H 'Origin: https://app-securex.sp-net.in' https://api-securex.sp-net.in/api/health \
+  | rg -i 'access-control-allow-origin|vary'
+curl -sI -H 'Origin: https://evil.example.com' https://api-securex.sp-net.in/api/health \
+  | rg -i 'access-control-allow-origin'   # expected: no match
+```
 
-## 8. Operations notes
+A fresh production database reports `0` users, which is expected before step 7.
+
+Then in the app: log in as the bootstrapped ADMIN → issue a credential (SX- ID) →
+verify → open the ledger explorer (blocks/height feed from the blockchain
+service) → verify a revoked credential shows `REVOKED`.
+
+## 9. Operations notes
 
 - **Recovery after a blockchain instance replacement:** nothing to do — the
   node boots to genesis automatically. Re-issued credentials get new on-chain
@@ -155,7 +227,7 @@ revoked credential shows `REVOKED`.
   chain state.
 - **Postgres 30-day expiry:** before expiry, either upgrade to a paid plan
   (blueprint `plan:` → e.g. `0.5c-1g`) or export data, then create a fresh free
-  database; `SEED_ON_BOOT=true` restores schema + seeds.
+  database; the schema is reapplied automatically on boot.
 - **Changing plans later:** flip `plan:` (e.g. `0.5c-512mb`) and re-sync the
   blueprint. A paid web service then supports a **persistent disk** — add a
   `disk:` block to `securex-blockchain`, set `CTN_IDENTITY_DIR`/`CTN_DATA_DIR`
@@ -166,3 +238,16 @@ revoked credential shows `REVOKED`.
   and set `CTN_BOOTSTRAP_NODES` to `ws://` URLs of the peer services.
 - **Secrets:** never hardcode `JWT_SECRET`/`SECRET_KEY`/`API_KEYS`; the
   blueprint uses `generateValue`. `DATABASE_URL` comes from `fromDatabase`.
+- **The first ADMIN does not survive a fresh database.** If the free Postgres
+  instance is ever replaced, the `BOOTSTRAP_ADMIN_*` variables will already be
+  gone, so re-provision them and repeat step 7. The one-time guard is per
+  database, so this is the supported recovery path — not a bypass.
+- **Downstream services are optional and degrade, they do not block.** Until
+  `BLOCKCHAIN_API_URL` / `FRAUD_ENGINE_URL` are set (step 4), the Platform API
+  still boots and every non-chain feature works; the Security Center health
+  report simply shows those dependencies as `DEGRADED`, and privileged chain
+  operations are refused with an explicit `UNAVAILABLE` result rather than being
+  attempted unauthenticated. Never invent placeholder values to silence this.
+- **`VITE_BLOCKCHAIN_AUTH_TOKEN` does not exist and must not be created.** The
+  equivalent server-side name is `BLOCKCHAIN_AUTH_TOKEN`, and the browser must
+  never hold it.

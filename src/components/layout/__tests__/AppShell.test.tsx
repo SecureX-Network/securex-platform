@@ -19,7 +19,7 @@ function renderShell(overrides: Partial<User> = {}) {
   window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
   window.localStorage.setItem(AUTH_TOKEN_KEY, 'token');
   return render(
-    <MemoryRouter initialEntries={['/holder/dashboard']}>
+    <MemoryRouter initialEntries={['/home']}>
       <AuthProvider>
         <AppShell />
       </AuthProvider>
@@ -36,24 +36,26 @@ describe('AppShell', () => {
   it('shows the sidebar groups with the user role context', async () => {
     renderShell();
     expect(
-      await screen.findByText('Workspace', { selector: '.uppercase.tracking-widest' }),
+      await screen.findByText('Home', { selector: '.uppercase.tracking-widest' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Trust', { selector: '.uppercase.tracking-widest' })).toBeInTheDocument();
-    expect(screen.getByText('System', { selector: '.uppercase.tracking-widest' })).toBeInTheDocument();
+    expect(screen.getByText('Credentials', { selector: '.uppercase.tracking-widest' })).toBeInTheDocument();
+    expect(screen.getByText('Activity', { selector: '.uppercase.tracking-widest' })).toBeInTheDocument();
+    expect(screen.getByText('Settings', { selector: '.uppercase.tracking-widest' })).toBeInTheDocument();
   });
 
   it('renders role-appropriate navigation for a HOLDER', async () => {
     renderShell();
-    const wallet = await screen.findByText('My Wallet');
+    const wallet = await screen.findByText('Wallet');
     expect(wallet).toBeInTheDocument();
     expect(screen.getByText('My Credentials')).toBeInTheDocument();
     expect(screen.queryByText('Issue Credential')).not.toBeInTheDocument();
     expect(screen.queryByText('Security Center')).not.toBeInTheDocument();
+    expect(screen.queryByText('Users')).not.toBeInTheDocument();
   });
 
   it('renders the header with notifications and a role label', async () => {
     renderShell();
-    await screen.findByText('My Wallet');
+    await screen.findByText('Wallet');
     expect(
       screen.getByRole('button', { name: /notifications \(\d+ unread\)/i }),
     ).toBeInTheDocument();
@@ -62,7 +64,7 @@ describe('AppShell', () => {
 
   it('renders a search button that opens the command palette', async () => {
     renderShell();
-    await screen.findByText('My Wallet');
+    await screen.findByText('Wallet');
     const searchButton = screen.getAllByRole('button', { name: /search securex/i })[0]!;
     searchButton.click();
     expect(

@@ -67,10 +67,18 @@ services:
         fromDatabase:
           name: securex-postgres
           property: connectionString
-      # Seeds canonical demo data only on first boot (schema_meta.seeded guard);
-      # existing data is never overwritten on re-deploys.
+      # Production must NOT auto-seed. The seed inserts privileged accounts
+      # (ADMIN/SECURITY_ADMIN/NETWORK_ADMIN/AUDITOR) that all share the
+      # plaintext password "Password123!", plus synthetic sessions and fake
+      # ledger history. Keep this "false" for the real deployment: an empty
+      # users table is the correct production starting state.
+      #
+      # The schema is still created on every boot (idempotent CREATE TABLE IF
+      # NOT EXISTS, no DROP/DELETE). Set SEED_ON_BOOT=true only on a
+      # deliberately-provisioned DEMO deployment; it applies to a FRESH
+      # database only and never overwrites existing rows.
       - key: SEED_ON_BOOT
-        value: "true"
+        value: "false"
       # POST-SYNC (dashboard): add BLOCKCHAIN_API_URL and FRAUD_ENGINE_URL
       # pointing at the blockchain/fraud public onrender.com URLs (see
       # docs/deployment-render.md).

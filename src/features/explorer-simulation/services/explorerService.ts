@@ -1,16 +1,17 @@
 import { IS_MOCK } from '@/constants';
-import { ApiError, fetchBlockchainAPI } from '@/services/api/client';
+import { ApiError, fetchPlatformAPI } from '@/services/api/client';
+import {
+  CHAIN_API_PREFIX,
+  type ChainBlockDto,
+  type ChainBlockPageDto,
+  type ChainHealthDto,
+  type ChainMetricsDto,
+  type ChainNetworkDto,
+  type ChainTransactionDto,
+  type ChainTransactionRecordDto,
+  type ChainValidatorDto,
+} from '@/services/api/blockchainProxy';
 import { mockDelay } from '@/services/mock';
-import type {
-  ApiBlock,
-  ApiHealth,
-  ApiMetrics,
-  ApiNetworkStatus,
-  ApiPeers,
-  ApiTransaction,
-  ApiTransactionRecord,
-  ApiValidator,
-} from '../types/backend';
 import { MOCK_PEERS } from '../data/network';
 import { MOCK_VALIDATORS } from '../data/validators';
 import type { NetworkOverview, Peer, Validator } from '../types';
@@ -100,23 +101,26 @@ async function runWithRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 600)
   throw lastError;
 }
 
-function mapBlock(block: ApiBlock): ExplorerBlockView {
+function mapBlock(block: ChainBlockDto): ExplorerBlockView {
   return {
-    height: block.header.height,
+    height: block.height,
     hash: block.hash,
-    previousHash: block.header.previousHash,
-    merkleRoot: block.header.merkleRoot,
-    timestamp: block.header.timestamp,
-    proposerId: block.header.proposerId,
-    transactionCount: block.transactions.length,
-    version: block.header.version,
+    previousHash: block.previousHash,
+    merkleRoot: block.merkleRoot,
+    timestamp: block.timestamp,
+    proposerId: block.proposerId,
+    transactionCount: block.transactionCount,
+    version: block.version,
     transactions: block.transactions.map((tx) =>
-      toTransactionView(tx, block.header.height),
+      toTransactionView(tx, block.height),
     ),
   };
 }
 
-export function toTransactionView(tx: ApiTransaction, blockHeight?: number): ExplorerTransactionView {
+export function toTransactionView(
+  tx: ChainTransactionDto,
+  blockHeight?: number,
+): ExplorerTransactionView {
   return {
     id: tx.id,
     type: tx.type,
@@ -170,9 +174,14 @@ export async function getExplorerBlocks(
   }
 
   const offset = (page - 1) * pageSize;
-  const blocks = await runWithRetry(() =>
-    withTimeout(fetchBlockchainAPI<ApiBlock[]>(`/blocks?offset=${offset}&limit=${pageSize}`)),
+  const result = await runWithRetry(() =>
+    withTimeout(
+      fetchPlatformAPI<ChainBlockPageDto>(
+        `${CHAIN_API_PREFIX}/blocks?offset=${offset}&limit=${pageSize}`,
+      ),
+    ),
   );
+  const blocks = result.blocks;
   const reached = offset + blocks.length;
   return {
     blocks: blocks.map(mapBlock),
@@ -197,12 +206,10 @@ export async function getExplorerBlockByHeight(height: number): Promise<Explorer
           protocolVersion: '1.0',
           transactionVersion: 1,
           id: tx.id,
-          type: tx.type as ApiTransaction['type'],
+          type: tx.type,
           timestamp: tx.timestamp,
           sender: tx.from,
           nonce: 1,
-          payload: {},
-          signature: '',
         },
         tx.blockHeight,
       ),
@@ -220,7 +227,7 @@ export async function getExplorerBlockByHeight(height: number): Promise<Explorer
     };
   }
   const block = await runWithRetry(() =>
-    withTimeout(fetchBlockchainAPI<ApiBlock>(`/blocks/${height}`)),
+    withTimeout(fetchPlatformAPI<ChainBlockDto>(`${CHAIN_API_PREFIX}/blocks/${height}`)),
   );
   return mapBlock(block);
 }
@@ -241,26 +248,28 @@ export async function getExplorerTransactionById(
         protocolVersion: '1.0',
         transactionVersion: 1,
         id: tx.id,
-        type: tx.type as ApiTransaction['type'],
+        type: tx.type,
         timestamp: tx.timestamp,
         sender: tx.from,
         nonce: 1,
-        payload: {},
-        signature: '',
       },
       tx.blockHeight,
     );
   }
   const record = await runWithRetry(() =>
-    withTimeout(fetchBlockchainAPI<ApiTransactionRecord>(`/transactions/${id}`)),
+    withTimeout(
+      fetchPlatformAPI<ChainTransactionRecordDto>(
+        `${CHAIN_API_PREFIX}/transactions/${encodeURIComponent(id)}`,
+      ),
+    ),
   );
-  return toTransactionView(record.transaction, record.blockHeight);
+  return toTransactionView(record, record.blockHeight);
 }
 
-// The SecureX Blockchain V2 API has NO transaction-list endpoint (only
-// GET /transactions/:id and POST /transactions). The transactions browse page
-// therefore compiles its list from recent REAL block data (small, demo-scale
-// chain). This is honest: every transaction genuinely comes from a real block.
+// The chain exposes NO transaction-list endpoint (only GET /transactions/:id and
+// POST /transactions). The transactions browse page therefore compiles its list
+// from recent REAL block data (small, demo-scale chain). This is honest: every
+// transaction genuinely comes from a real block.
 export async function getRecentTransactions(
   page = 1,
   pageSize = 12,
@@ -276,12 +285,10 @@ export async function getRecentTransactions(
             protocolVersion: '1.0',
             transactionVersion: 1,
             id: tx.id,
-            type: tx.type as ApiTransaction['type'],
+            type: tx.type,
             timestamp: tx.timestamp,
             sender: tx.from,
             nonce: 1,
-            payload: {},
-            signature: '',
           },
           tx.blockHeight,
         ),
@@ -302,18 +309,19 @@ export async function getRecentTransactions(
   let scannedBlocks = 0;
 
   while (out.length < pageSize && scannedBlocks < 500) {
-    const blocks = await runWithRetry(() =>
+    const result = await runWithRetry(() =>
       withTimeout(
-        fetchBlockchainAPI<ApiBlock[]>(
-          `/blocks?offset=${blockOffset}&limit=${blockBatch}`,
+        fetchPlatformAPI<ChainBlockPageDto>(
+          `${CHAIN_API_PREFIX}/blocks?offset=${blockOffset}&limit=${blockBatch}`,
         ),
       ),
     );
+    const blocks = result.blocks;
     if (blocks.length === 0) break;
     for (const block of blocks) {
       scannedBlocks += 1;
       for (const tx of block.transactions) {
-        out.push(toTransactionView(tx, block.header.height));
+        out.push(toTransactionView(tx, block.height));
       }
     }
     if (blocks.length < blockBatch) break;
@@ -349,12 +357,12 @@ export async function getExplorerValidators(): Promise<ExplorerValidatorView[]> 
     }));
   }
   const validators = await runWithRetry(() =>
-    withTimeout(fetchBlockchainAPI<ApiValidator[]>(`/state/validators`)),
+    withTimeout(fetchPlatformAPI<ChainValidatorDto[]>(`${CHAIN_API_PREFIX}/validators`)),
   );
   return validators.map((v) => ({
-    id: v.validatorId,
+    id: v.id,
     publicKey: v.publicKey,
-    active: v.status === 'ACTIVE',
+    active: v.active,
     addedAt: v.addedAt,
   }));
 }
@@ -381,22 +389,28 @@ export async function getExplorerNetworkStatus(): Promise<ExplorerNetworkStatus>
     };
   }
 
-  const [status, metrics]: [ApiNetworkStatus, ApiMetrics | null] = await Promise.all([
-    runWithRetry(() => withTimeout(fetchBlockchainAPI<ApiNetworkStatus>(`/network/status`))),
+  // The Platform API serves network status and peer topology from one read;
+  // metrics is a separate best-effort call for the protocol/node versions.
+  const [status, metrics]: [ChainNetworkDto, ChainMetricsDto | null] = await Promise.all([
     runWithRetry(() =>
-      withTimeout(fetchBlockchainAPI<ApiMetrics>(`/metrics`)).catch(() => null),
+      withTimeout(fetchPlatformAPI<ChainNetworkDto>(`${CHAIN_API_PREFIX}/network`)),
+    ),
+    runWithRetry(() =>
+      withTimeout(fetchPlatformAPI<ChainMetricsDto>(`${CHAIN_API_PREFIX}/metrics`)).catch(
+        () => null,
+      ),
     ),
   ]);
 
   return {
     height: status.height,
     peerCount: status.peerCount,
-    validatorCount: status.validators,
-    activeValidatorCount: metrics?.validators.active ?? status.validators,
-    currentProposer: status.currentProposer ?? metrics?.consensus.currentProposer ?? null,
+    validatorCount: status.validatorCount,
+    activeValidatorCount: metrics?.activeValidatorCount ?? status.validatorCount,
+    currentProposer: status.currentProposer ?? metrics?.currentProposer ?? null,
     pendingTransactions: status.pendingTransactions,
-    protocolVersion: metrics?.node.protocolVersion ?? '2.0',
-    nodeVersion: metrics?.node.version ?? '0.1.0',
+    protocolVersion: metrics?.protocolVersion ?? 'unknown',
+    nodeVersion: metrics?.nodeVersion ?? 'unknown',
     nodeId: status.nodeId,
     status: status.status,
   };
@@ -416,25 +430,39 @@ export async function getExplorerPeers(): Promise<ExplorerPeers> {
       peerCount: MOCK_PEERS.length,
     };
   }
-  const peers = await runWithRetry(() =>
-    withTimeout(fetchBlockchainAPI<ApiPeers>(`/network/peers`)),
+  const network = await runWithRetry(() =>
+    withTimeout(fetchPlatformAPI<ChainNetworkDto>(`${CHAIN_API_PREFIX}/network`)),
   );
-  return peers;
+  return {
+    connected: network.connectedPeers,
+    known: network.knownPeers,
+    peerCount: network.peerCount,
+  };
 }
 
-export async function getExplorerHealth(): Promise<ApiHealth> {
+export interface ExplorerHealthView {
+  status: string;
+  height: number;
+  peerCount: number;
+  nodeVersion: string;
+  protocolVersion: string;
+  checkedAt: string;
+}
+
+export async function getExplorerHealth(): Promise<ExplorerHealthView> {
   if (getDataSourceMode() === 'DEMO') {
     await mockDelay();
     const network = (await import('../data/network')).MOCK_NETWORK as NetworkOverview;
     return {
-      nodeId: 'local-demo-node',
-      version: 'v2.1.0',
-      protocolVersion: '2.0',
+      status: 'UP',
       height: network.currentHeight,
       peerCount: network.connectedPeers,
-      uptime: 0,
-      status: 'UP',
+      nodeVersion: 'v2.1.0',
+      protocolVersion: network.protocolVersion,
+      checkedAt: new Date().toISOString(),
     };
   }
-  return runWithRetry(() => withTimeout(fetchBlockchainAPI<ApiHealth>(`/health`)));
+  return runWithRetry(() =>
+    withTimeout(fetchPlatformAPI<ChainHealthDto>(`${CHAIN_API_PREFIX}/health`)),
+  );
 }

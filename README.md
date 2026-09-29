@@ -66,7 +66,9 @@ npm run server        # tsx dev runner on http://localhost:4000
 ```
 
 On a fresh database the server applies the schema and seeds the canonical demo
-domain data automatically (`SEED_ON_BOOT=true`), then never reseeds. The
+domain data automatically (`SEED_ON_BOOT` defaults to `true` in development),
+then never reseeds. In production the seed defaults to `false`, because it
+creates privileged demo accounts that all share the password `Password123!`.
 default connection strings are:
 
 - Development: `postgres://localhost:5432/securex`
@@ -117,10 +119,13 @@ secrets in these):
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | `http://localhost:4000/api` | Platform API endpoint |
-| `VITE_BLOCKCHAIN_API_URL` | `http://localhost:3001` | SecureX Blockchain endpoint |
-| `VITE_FRAUD_ENGINE_URL` | `http://localhost:4002/fraud` | Fraud engine endpoint |
-| `VITE_USE_MOCK` | `true` | `true` = demo/mock mode, `false` = real services |
+| `VITE_API_BASE_URL` | `http://localhost:4000/api` in dev; **required in a production build** | Platform API endpoint. In a production bundle, unset/blank, non-absolute, or `http://` throws in the browser instead of falling back to localhost (the check runs at page load, not at build time). |
+| `VITE_USE_MOCK` | `true` | `true` = demo/mock mode, `false` = real services. Demo mode is explicit opt-in and fails closed. |
+
+There is deliberately **no** `VITE_BLOCKCHAIN_API_URL`, `VITE_FRAUD_ENGINE_URL`, or
+`VITE_BLOCKCHAIN_AUTH_TOKEN`. The browser never addresses those services and must
+never hold a service credential — every chain operation is proxied server-side by
+the Platform API, which authorizes the caller first.
 
 Backend variables (read from the process environment at server runtime):
 
@@ -135,9 +140,38 @@ Backend variables (read from the process environment at server runtime):
 | `DATA_MODE` | `demo` | `real` or `demo`; `demo` is forbidden in production |
 | `JWT_SECRET` | dev fallback | JWT signing secret (required in production) |
 | `CORS_ORIGINS` | `http://localhost:3000` | Exact allowed browser origins, comma-separated |
-| `SEED_ON_BOOT` | `true` | Seed canonical demo data on a **fresh** database only |
+| `SEED_ON_BOOT` | `true` in dev, **`false` in production** | Seed canonical demo data on a **fresh** database only. The seed creates privileged accounts sharing the password `Password123!`, so production must opt in explicitly. |
 | `BLOCKCHAIN_API_URL` | `http://localhost:3001` | Blockchain service health probe target |
 | `FRAUD_ENGINE_URL` | `http://localhost:4002/fraud` | Fraud engine health probe target |
+| `BLOCKCHAIN_AUTH_TOKEN` | empty | Credential presented to the blockchain service. Server-side only. When empty, privileged chain operations are refused with an explicit `UNAVAILABLE` result. |
+| `BOOTSTRAP_ADMIN_SECRET` | empty | One-time ADMIN bootstrap secret (>= 32 chars). Server-side CLI only; see below. |
+| `BOOTSTRAP_ADMIN_EMAIL` / `_NAME` / `_PASSWORD` | empty | The initial administrator's credentials, hashed with bcrypt on insert. |
+| `BOOTSTRAP_ADMIN_TOKEN` | empty | Proof of possession supplied when running `npm run bootstrap:admin`; must equal `BOOTSTRAP_ADMIN_SECRET`. |
+
+### One-time ADMIN bootstrap
+
+With `SEED_ON_BOOT=false` a fresh production database has **zero users**, and
+public registration cannot mint privileged roles by design (`SELF_REGISTER_ROLES`
+is only `HOLDER`/`INSTITUTION`/`ISSUER`/`EMPLOYER`). The first administrator is
+created deliberately, exactly once, by a server-side command — not an HTTP
+route, so there is nothing reachable to attack:
+
+```bash
+# in the service environment (Render Shell or a one-off job)
+BOOTSTRAP_ADMIN_SECRET=<>= 32 random chars>
+BOOTSTRAP_ADMIN_EMAIL=admin@sp-net.in
+BOOTSTRAP_ADMIN_NAME='Platform Administrator'
+BOOTSTRAP_ADMIN_PASSWORD=<strong password>
+
+BOOTSTRAP_ADMIN_TOKEN=<same value as BOOTSTRAP_ADMIN_SECRET> \
+  npm run bootstrap:admin
+```
+
+It creates exactly one `ADMIN` (never `SECURITY_ADMIN`/`NETWORK_ADMIN`/`AUDITOR`),
+refuses if any `ADMIN` already exists, compares the token in constant time, and
+never logs a secret, password, or hash. After it succeeds, delete the four
+`BOOTSTRAP_ADMIN_*` variables from the service environment. Full procedure:
+[docs/deployment-render.md](docs/deployment-render.md).
 
 ## PostgreSQL Deployment (Render)
 
@@ -159,9 +193,28 @@ Required production environment (also validated by `render.yaml`):
 | `JWT_SECRET` | Generate once in the dashboard (Render persists it) |
 | `CORS_ORIGINS` | `https://app-securex.sp-net.in` (the Vercel frontend) |
 | `HOST` | `0.0.0.0` (Render sets `PORT`) |
-| `SEED_ON_BOOT` | `true` (seed happens only on the very first fresh database) |
-| `BLOCKCHAIN_API_URL` | Deployed Blockchain service URL |
-| `FRAUD_ENGINE_URL` | Deployed Fraud Engine service URL |
+| `SEED_ON_BOOT` | `false` (keep it `false` for a real deployment; the schema is still applied on every boot) |
+| `BLOCKCHAIN_API_URL` | Deployed Blockchain service URL (optional; see below) |
+| `FRAUD_ENGINE_URL` | Deployed Fraud Engine service URL (optional; see below) |
+| `BLOCKCHAIN_AUTH_TOKEN` | Credential for the blockchain service (optional, server-side only) |
+
+`BLOCKCHAIN_API_URL` and `FRAUD_ENGINE_URL` are **optional**. Until they are set
+the API still boots and every non-chain feature works; the Security Center health
+report shows those dependencies as `DEGRADED` and privileged chain operations are
+refused with an explicit `UNAVAILABLE` result. Do not invent placeholder values
+to silence that.
+
+### Frontend (Vercel)
+
+```
+VITE_API_BASE_URL = https://api-securex.sp-net.in/api
+VITE_USE_MOCK     = false
+```
+
+Set `VITE_API_BASE_URL` for **every** Vercel environment (Production, Preview,
+and Development) — all three run a production-mode `vite build`, and the value
+fails closed if it is missing. No blockchain or fraud-engine variables belong on
+Vercel.
 
 Production behavior (fail closed):
 
@@ -331,8 +384,8 @@ src/
 | Route | Page | Description |
 | --- | --- | --- |
 | `/employer/dashboard` | EmployerDashboardPage | Employer overview and stats |
-| `/employer/verify` | EmployerVerifyPage | Verify a candidate credential |
-| `/employer/history` | EmployerHistoryPage | Verification audit trail |
+| `/employer/verify` | redirect → `/verify-credential` | Verify a candidate credential (canonical route is `/verify-credential`) |
+| `/employer/history` | redirect → `/verification-history` | Verification audit trail (canonical route is `/verification-history`) |
 
 ### Admin
 

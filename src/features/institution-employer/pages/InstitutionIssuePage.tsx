@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -35,6 +35,7 @@ const CREDENTIAL_TYPES = [
 export default function InstitutionIssuePage() {
   const { user } = useAuth();
 
+  const descriptionId = useId();
   const [form, setForm] = useState({
     type: '',
     title: '',
@@ -138,7 +139,7 @@ export default function InstitutionIssuePage() {
     <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Link
-          to="/institution/dashboard"
+          to="/home"
           aria-label="Back to dashboard"
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50"
         >
@@ -149,8 +150,8 @@ export default function InstitutionIssuePage() {
             Issue New Credential
           </h1>
           <p className="text-sm text-neutral-500">
-            Create a cryptographically signed credential and anchor it to the
-            SecureX ledger.
+            Create a credential record for a holder. It becomes verifiable as soon
+            as it is issued.
           </p>
         </div>
       </div>
@@ -197,10 +198,14 @@ export default function InstitutionIssuePage() {
                 error={touched.title ? formErrors.title || undefined : undefined}
               />
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-neutral-700">
+                <label
+                  htmlFor={descriptionId}
+                  className="mb-1.5 block text-sm font-medium text-neutral-700"
+                >
                   Description
                 </label>
                 <textarea
+                  id={descriptionId}
                   rows={3}
                   placeholder="Credential description..."
                   value={form.description}
@@ -251,7 +256,7 @@ export default function InstitutionIssuePage() {
             >
               Issue Credential
             </Button>
-            <Link to="/institution/dashboard">
+            <Link to="/home">
               <Button variant="ghost" type="button">
                 Cancel
               </Button>
@@ -371,8 +376,7 @@ export default function InstitutionIssuePage() {
             Successfully Issued
           </h3>
           <p className="mt-1 text-sm text-neutral-500">
-            The credential has been cryptographically signed and anchored to the
-            blockchain.
+            The credential record is live and verifiable by anyone with its ID.
           </p>
           <div className="mt-4 rounded-lg bg-neutral-50 px-4 py-2.5">
             <p className="text-xs text-neutral-500">Credential ID</p>

@@ -1,4 +1,4 @@
-import { API_BASE_URL, BLOCKCHAIN_API_URL, AUTH_TOKEN_KEY, IS_MOCK } from '@/constants';
+import { API_BASE_URL, AUTH_TOKEN_KEY, IS_MOCK } from '@/constants';
 import { mockDelay } from '@/services/mock';
 import type { ApiResponse } from '@/types';
 
@@ -89,15 +89,12 @@ async function requestJson<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
-  // Only inject the session token when the caller did not explicitly set an
-  // Authorization header. This lets REAL-mode privileged calls (which forward a
-  // configured backend principal token) override the UI session token instead of
-  // silently being overwritten, while keeping normal UI requests authenticated.
-  if (!headers.has('Authorization')) {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
+  // The browser's only credential is the Platform API session token. The
+  // blockchain service credential lives exclusively on the server
+  // (BLOCKCHAIN_AUTH_TOKEN) and is never present in a browser bundle.
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const controller = new AbortController();
@@ -143,9 +140,18 @@ async function requestJson<T>(
   return payload.data;
 }
 
-export async function fetchBlockchainAPI<T>(
+/**
+ * Call the SecureX Platform API and unwrap the `{ success, data }` envelope.
+ *
+ * This is the ONLY network egress point for browser code. There is deliberately
+ * no `fetchBlockchainAPI` any more: the browser holds no blockchain service URL
+ * and no blockchain service credential, so it can never address the privileged
+ * blockchain service directly. Chain operations are requested from the Platform
+ * API, which authorizes the caller and then proxies the call server-side.
+ */
+export async function fetchPlatformAPI<T>(
   url: string,
   options: RequestInit = {},
 ): Promise<T> {
-  return requestJson<T>(BLOCKCHAIN_API_URL, url, options);
+  return requestJson<T>(API_BASE_URL, url, options);
 }

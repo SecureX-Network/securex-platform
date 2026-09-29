@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  CalendarClock,
-  Check,
-  Clock,
   Copy,
   Info,
   Link2,
@@ -25,19 +22,11 @@ import { getHolderCredentialsView, getRealQrReference } from '@/features/holder-
 import type { Credential } from '@/types';
 import { formatDate } from '@/utils';
 
-const EXPIRY_OPTIONS = [
-  { label: '24 hours', value: '1d' },
-  { label: '7 days', value: '7d' },
-  { label: '30 days', value: '30d' },
-  { label: 'Never expires', value: 'never' },
-];
-
 interface ShareRecord {
   id: string;
   credentialTitle: string;
   method: 'link' | 'email';
   createdAt: string;
-  expiresAt?: string;
 }
 
 export default function HolderSharePage() {
@@ -47,10 +36,10 @@ export default function HolderSharePage() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState('');
-  const [expiry, setExpiry] = useState('7d');
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [recentShares, setRecentShares] = useState<ShareRecord[]>([]);
-  const [qrHref, setQrHref] = useState<string | null>(null);
+  const [qrPayload, setQrPayload] = useState<string | null>(null);
+  const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
 
   const loadCredentials = useCallback(async () => {
     setLoading(true);
@@ -84,13 +73,27 @@ export default function HolderSharePage() {
   useEffect(() => {
     let active = true;
     if (!selectedCredential) {
-      setQrHref(null);
+      setQrPayload(null);
+      setVerifyUrl(null);
       return;
     }
-    setQrHref(null);
+    setQrPayload(null);
+    setVerifyUrl(null);
     getRealQrReference(selectedCredential.credentialId)
-      .then((ref) => active && setQrHref(ref.verificationUrl))
-      .catch(() => active && setQrHref(null));
+      .then((ref) => {
+        if (!active) return;
+        // `qrContent` is the opaque SXQR1 payload the SecureX scanner accepts;
+        // `verificationUrl` is the human-readable page. They are NOT
+        // interchangeable — encoding the URL into the QR makes the scanner
+        // reject it.
+        setQrPayload(ref.qrContent);
+        setVerifyUrl(ref.verificationUrl);
+      })
+      .catch(() => {
+        if (!active) return;
+        setQrPayload(null);
+        setVerifyUrl(null);
+      });
     return () => {
       active = false;
     };
@@ -107,13 +110,9 @@ export default function HolderSharePage() {
 
   const generateLink = () => {
     if (!selectedCredential) return;
-    const base = qrHref ?? `${window.location.origin}/verify/${selectedCredential.credentialId}`;
-    const expiresAfter =
-      expiry === 'never' ? null : expiry === '1d' ? 1 : expiry === '30d' ? 30 : 7;
     const link =
-      expiresAfter === null
-        ? base
-        : `${base}?exp=${Date.now() + expiresAfter * 24 * 60 * 60 * 1000}`;
+      verifyUrl ??
+      `${window.location.origin}/verify/${encodeURIComponent(selectedCredential.credentialId)}`;
     setGeneratedLink(link);
     setRecentShares((prev) => [
       {
@@ -121,10 +120,6 @@ export default function HolderSharePage() {
         credentialTitle: selectedCredential.title,
         method: 'link',
         createdAt: new Date().toISOString(),
-        expiresAt:
-          expiresAfter === null
-            ? undefined
-            : new Date(Date.now() + expiresAfter * 24 * 60 * 60 * 1000).toISOString(),
       },
       ...prev.slice(0, 4),
     ]);
@@ -135,8 +130,11 @@ export default function HolderSharePage() {
     const subject = encodeURIComponent(
       `Credential: ${selectedCredential.title}`,
     );
+    const link =
+      verifyUrl ??
+      `${window.location.origin}/verify/${encodeURIComponent(selectedCredential.credentialId)}`;
     const body = encodeURIComponent(
-      `Here is a secure verification link for my credential "${selectedCredential.title}":\n\n${qrHref ?? `${window.location.origin}/verify/${selectedCredential.credentialId}`}`,
+      `Here is a secure verification link for my credential "${selectedCredential.title}":\n\n${link}`,
     );
     setRecentShares((prev) => [
       {
@@ -207,52 +205,36 @@ export default function HolderSharePage() {
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          2. Set expiration
-        </h2>
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 shrink-0 text-neutral-400" />
-          <Select
-            aria-label="Share link expiration"
-            value={expiry}
-            onChange={(event) => setExpiry(event.target.value)}
-            options={EXPIRY_OPTIONS}
-          />
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          3. Verification QR code
+          2. Verification QR code
         </h2>
         <div className="flex flex-col items-center gap-3 rounded-xl bg-neutral-50 p-5">
           <div className="flex h-44 w-44 items-center justify-center rounded-lg border border-neutral-200 bg-white p-2">
-            {selectedCredential ? (
-              <QRCodeSVG
-                value={qrHref ?? `${window.location.origin}/verify/${selectedCredential.credentialId}`}
-                size={152}
-                level="M"
-                includeMargin={false}
-              />
+            {qrPayload ? (
+              <QRCodeSVG value={qrPayload} size={152} level="M" includeMargin={false} />
             ) : (
               <span className="text-center">
                 <QrCode className="mx-auto h-9 w-9 text-neutral-400" />
+                <span className="mt-1 block text-[11px] text-neutral-400">
+                  Preparing QR…
+                </span>
               </span>
             )}
           </div>
           <p className="text-center text-xs text-neutral-500">
-            Display this QR code for a verifier to scan.
+            Display this QR code for a verifier to scan in the SecureX verifier.
           </p>
         </div>
         <p className="mt-3 flex items-start gap-1.5 text-xs text-neutral-500">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
-          The QR code encodes the credential verification URL. Verifiers can scan
-          it to instantly verify the credential on the SecureX platform.
+          The QR encodes an opaque SecureX payload, not a readable link — the
+          credential ID stays hidden in the image. The SecureX scanner only accepts
+          this payload format, so it cannot be replaced by a plain URL.
         </p>
       </Card>
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          4. Share options
+          3. Share options
         </h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <Button
@@ -292,25 +274,19 @@ export default function HolderSharePage() {
         )}
 
         {generatedLink && (
-          <div className="mt-4 flex items-center gap-1.5 text-xs text-neutral-500">
-            <Check className="h-3.5 w-3.5 text-trust-600" />
-            {expiry === 'never' ? (
-              'Link will never expire'
-            ) : (
-              <>
-                <CalendarClock className="h-3.5 w-3.5 text-neutral-400" />
-                Link expires in{' '}
-                {EXPIRY_OPTIONS.find((o) => o.value === expiry)?.label}
-              </>
-            )}
+          <div className="mt-4 flex items-start gap-1.5 text-xs text-neutral-500">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            Anyone with this link can view the credential's public details and
+            current status. It does not expire and cannot be revoked — revoke the
+            credential itself if you need to stop it being accepted.
           </div>
         )}
       </Card>
 
       <Alert
         variant="info"
-        title="Security notice"
-        description="Share links are generated locally and contain only the credential verification identifier. No private data is exposed through the link. Recipients can verify the credential through the SecureX verification portal."
+        title="Before you share"
+        description="A verification link reveals this credential's public details and status to anyone who has it. It carries no private data and no secret of yours — treat it as public information, and revoke the credential if it should no longer be accepted."
         icon={<ShieldCheck className="h-5 w-5" />}
       />
 
@@ -320,7 +296,7 @@ export default function HolderSharePage() {
         </h2>
         {recentShares.length === 0 ? (
           <p className="py-4 text-center text-sm text-neutral-400">
-            You haven\u2019t shared any credentials yet.
+            You haven’t shared any credentials yet.
           </p>
         ) : (
           <ul className="divide-y divide-neutral-100">
@@ -334,9 +310,8 @@ export default function HolderSharePage() {
                     {share.credentialTitle}
                   </p>
                   <p className="text-xs text-neutral-500">
-                    {share.method === 'email' ? 'Via email' : 'Share link'} \u00b7{' '}
+                    {share.method === 'email' ? 'Via email' : 'Share link'} ·{' '}
                     {formatDate(share.createdAt)}
-                    {share.expiresAt && ` \u00b7 expires ${formatDate(share.expiresAt)}`}
                   </p>
                 </div>
                 <Badge variant={share.method === 'email' ? 'info' : 'success'}>

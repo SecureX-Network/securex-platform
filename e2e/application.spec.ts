@@ -84,11 +84,14 @@ test.describe('Marketing routes redirect to the public website', () => {
 
 test.describe('Authenticated root redirects by role', () => {
   const cases: Array<{ role: string; expected: string }> = [
-    { role: 'HOLDER', expected: '/holder/dashboard' },
-    { role: 'INSTITUTION', expected: '/institution/dashboard' },
-    { role: 'ISSUER', expected: '/institution/dashboard' },
-    { role: 'EMPLOYER', expected: '/employer/dashboard' },
-    { role: 'ADMIN', expected: '/admin/dashboard' },
+    { role: 'HOLDER', expected: '/home' },
+    { role: 'INSTITUTION', expected: '/home' },
+    { role: 'ISSUER', expected: '/home' },
+    { role: 'EMPLOYER', expected: '/home' },
+    { role: 'ADMIN', expected: '/home' },
+    { role: 'SECURITY_ADMIN', expected: '/home' },
+    { role: 'NETWORK_ADMIN', expected: '/home' },
+    { role: 'AUDITOR', expected: '/home' },
   ];
 
   for (const { role, expected } of cases) {
@@ -98,11 +101,25 @@ test.describe('Authenticated root redirects by role', () => {
     });
   }
 
+  test('legacy dashboard URLs redirect to the Home page', async ({ page }) => {
+    const cases: Array<{ path: string; role: string }> = [
+      { path: '/holder/dashboard', role: 'HOLDER' },
+      { path: '/admin/dashboard', role: 'ADMIN' },
+      { path: '/institution/dashboard', role: 'INSTITUTION' },
+      { path: '/employer/dashboard', role: 'EMPLOYER' },
+    ];
+    for (const { path, role } of cases) {
+      await seedSession(page, role);
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/home$/);
+    }
+  });
+
   test('session survives a reload while on the app gateway', async ({ page }) => {
     await seedSession(page, 'HOLDER');
-    await expect(page).toHaveURL(/\/holder\/dashboard/);
+    await expect(page).toHaveURL(/\/home/);
     await page.reload();
-    await expect(page).toHaveURL(/\/holder\/dashboard/);
+    await expect(page).toHaveURL(/\/home/);
   });
 });
 
@@ -160,30 +177,47 @@ test.describe('Authenticated shell (HOLDER)', () => {
   });
 
   test('sidebar shows role-relevant grouped navigation', async ({ page }) => {
-    await expect(page).toHaveURL(/\/holder\/dashboard/);
-    for (const label of ['Workspace', 'Trust', 'Network', 'System']) {
+    await expect(page).toHaveURL(/\/home/);
+    // The ledger group is present but deliberately last and reduced to a single
+    // entry: infrastructure stays reachable without competing with credentials
+    // and verification for a first-time holder's attention.
+    for (const label of ['Home', 'Credentials', 'Verify', 'Activity', 'Settings', 'Ledger']) {
       await expect(page.getByRole('navigation', { name: label })).toBeVisible();
     }
     const sidebar = page.getByRole('complementary', { name: 'Application navigation' });
-    for (const label of ['Overview', 'My Wallet', 'My Credentials', 'Share Credential', 'Verify', 'Explorer', 'Notifications', 'Settings']) {
+    for (const label of ['Home', 'My Credentials', 'Wallet', 'Verify', 'Verification History', 'Activity', 'Notifications', 'Settings', 'Block Explorer']) {
       await expect(sidebar.getByRole('link', { name: label, exact: true })).toBeVisible();
+    }
+    // Deep infrastructure pages are routable but not given sidebar prominence.
+    for (const label of ['Blocks', 'Validators', 'Network Peers']) {
+      await expect(sidebar.getByRole('link', { name: label, exact: true })).toHaveCount(0);
     }
   });
 
   test('sidebar hides institution, admin, and security items from a HOLDER', async ({ page }) => {
-    await expect(page).toHaveURL(/\/holder\/dashboard/);
+    await expect(page).toHaveURL(/\/home/);
     const sidebar = page.getByRole('complementary', { name: 'Application navigation' });
     for (const label of ['Issue Credential', 'Templates', 'Security Center', 'Fraud & Tampering', 'Users', 'Institutions']) {
       await expect(sidebar.getByRole('link', { name: label, exact: true })).toHaveCount(0);
     }
   });
 
-  test('breadcrumb reflects the Workspace section and page label', async ({ page }) => {
+  test('home renders a holder workspace with quick actions and recent credentials', async ({ page }) => {
+    await expect(page).toHaveURL(/\/home/);
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible();
+    await expect(main.getByText(/welcome back/i)).toBeVisible();
+    await expect(main.getByRole('link', { name: /my credentials/i })).toBeVisible();
+    await expect(main.getByRole('link', { name: /notifications/i })).toBeVisible();
+    await expect(main.getByRole('heading', { level: 2, name: 'Recent Activity' })).toBeVisible();
+  });
+
+  test('breadcrumb reflects the section and page label', async ({ page }) => {
     await page.goto('/holder/wallet');
     const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' });
     await expect(breadcrumb).toContainText('SecureX');
-    await expect(breadcrumb).toContainText('Workspace');
-    await expect(breadcrumb).toContainText('My Wallet');
+    await expect(breadcrumb).toContainText('Credentials');
+    await expect(breadcrumb).toContainText('Wallet');
   });
 
   test('mobile drawer opens and closes via the menu button', async ({ page }) => {
@@ -199,6 +233,77 @@ test.describe('Authenticated shell (HOLDER)', () => {
     await page.goto('/holder/wallet');
     await expect(page.getByRole('heading', { level: 1, name: 'Wallet' })).toBeVisible();
   });
+
+  test('activity center renders inside the shell', async ({ page }) => {
+    await page.goto('/activity');
+    await expect(page.getByRole('heading', { level: 1, name: 'Activity' })).toBeVisible();
+    await expect(page.getByText(/credentials, verifications, and security events/i)).toBeVisible();
+  });
+});
+
+test.describe('Authenticated shell (institution)', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedSession(page, 'INSTITUTION');
+  });
+
+  test('home renders an institution portal with issue-first quick actions', async ({ page }) => {
+    await expect(page).toHaveURL(/\/home/);
+    const main = page.locator('main');
+    await expect(main.getByText('Institution Portal')).toBeVisible();
+    await expect(main.getByRole('link', { name: /issue credential/i }).first()).toBeVisible();
+    await expect(main.getByRole('heading', { level: 2, name: 'Credential ecosystem' })).toBeVisible();
+    await expect(main.getByRole('heading', { level: 2, name: 'Recent Credentials Issued' })).toBeVisible();
+  });
+
+  test('skips operator-only surface', async ({ page }) => {
+    await expect(page).toHaveURL(/\/home/);
+    const sidebar = page.getByRole('complementary', { name: 'Application navigation' });
+    for (const label of ['Users', 'Security Center', 'Audit Log']) {
+      await expect(sidebar.getByRole('link', { name: label, exact: true })).toHaveCount(0);
+    }
+  });
+});
+
+test.describe('Authenticated shell (employer)', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedSession(page, 'EMPLOYER');
+  });
+
+  test('home renders a verification-first employer workspace', async ({ page }) => {
+    await expect(page).toHaveURL(/\/home/);
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible();
+    await expect(main.getByText(/check a candidate's credential or review past verifications/i)).toBeVisible();
+    await expect(main.getByRole('link', { name: /verify a credential/i })).toBeVisible();
+    await expect(main.getByRole('link', { name: /verification history/i })).toBeVisible();
+  });
+
+  test('skips credential issuance surface', async ({ page }) => {
+    const sidebar = page.getByRole('complementary', { name: 'Application navigation' });
+    for (const label of ['Issue Credential', 'Templates', 'Users']) {
+      await expect(sidebar.getByRole('link', { name: label, exact: true })).toHaveCount(0);
+    }
+  });
+});
+
+test.describe('Authenticated shell (operator)', () => {
+  test('ADMIN home shows platform stats, security posture and quick actions', async ({ page }) => {
+    await seedSession(page, 'ADMIN');
+    await expect(page).toHaveURL(/\/home/);
+    const main = page.locator('main');
+    await expect(main.getByText(/all systems operational/i)).toBeVisible();
+    await expect(main.getByRole('link', { name: /security center/i })).toBeVisible();
+    await expect(main.getByRole('link', { name: /audit log/i })).toBeVisible();
+    await expect(main.getByRole('heading', { level: 2, name: 'Active Security Alerts' })).toBeVisible();
+  });
+
+  test('AUDITOR home hides the user administration quick action', async ({ page }) => {
+    await seedSession(page, 'AUDITOR');
+    await expect(page).toHaveURL(/\/home/);
+    const main = page.locator('main');
+    await expect(main.getByRole('link', { name: /audit log/i })).toBeVisible();
+    await expect(main.getByRole('link', { name: /users/i })).toHaveCount(0);
+  });
 });
 
 test.describe('Command palette', () => {
@@ -207,7 +312,7 @@ test.describe('Command palette', () => {
   });
 
   test('opens, searches, and navigates to a credential', async ({ page }) => {
-    await expect(page).toHaveURL(/\/holder\/dashboard/);
+    await expect(page).toHaveURL(/\/home/);
     await page.getByRole('button', { name: /search securex/i }).first().click();
     const dialog = page.getByRole('dialog', { name: 'Search SecureX' });
     await expect(dialog).toBeVisible();
@@ -219,7 +324,7 @@ test.describe('Command palette', () => {
   });
 
   test('closes with Escape', async ({ page }) => {
-    await expect(page).toHaveURL(/\/holder\/dashboard/);
+    await expect(page).toHaveURL(/\/home/);
     await page.getByRole('button', { name: /search securex/i }).first().click();
     await expect(page.getByRole('dialog', { name: 'Search SecureX' })).toBeVisible();
     await page.keyboard.press('Escape');
@@ -233,7 +338,7 @@ test.describe('Notification center', () => {
   });
 
   test('opens, marks all notifications read, and links to the notifications page', async ({ page }) => {
-    await expect(page).toHaveURL(/\/holder\/dashboard/);
+    await expect(page).toHaveURL(/\/home/);
     const bell = page.getByRole('button', { name: /notifications \(\d+ unread\)/i });
     await expect(bell).toBeVisible();
     await bell.click();
@@ -276,7 +381,7 @@ test.describe('Authenticated pages: console and network hygiene', () => {
     page.on('requestfailed', (req) => failedRequests.push(`${req.method()} ${req.url()}`));
 
     await seedSession(page, 'HOLDER');
-    for (const path of ['/holder/dashboard', '/holder/wallet', '/verify', '/explorer', '/notifications', '/account/settings']) {
+    for (const path of ['/home', '/activity', '/holder/wallet', '/verify', '/explorer', '/notifications', '/account/settings']) {
       await page.goto(path);
       await expect(page.locator('body').first()).toBeAttached();
     }
@@ -292,7 +397,7 @@ test.describe('Authenticated pages: console and network hygiene', () => {
     page.on('requestfailed', (req) => failedRequests.push(`${req.method()} ${req.url()}`));
 
     await seedSession(page, 'ADMIN');
-    for (const path of ['/admin/dashboard', '/admin/users', '/security', '/fraud', '/admin/security/audit']) {
+    for (const path of ['/home', '/admin/users', '/security', '/fraud', '/admin/security/audit', '/activity']) {
       await page.goto(path);
       await expect(page.locator('body').first()).toBeAttached();
     }
@@ -306,12 +411,15 @@ test.describe('Responsive layout on authenticated pages', () => {
   for (const viewport of [
     { width: 390, height: 844 },
     { width: 480, height: 800 },
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
     { width: 1280, height: 800 },
+    { width: 1440, height: 900 },
   ]) {
     test(`no horizontal overflow at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await seedSession(page, 'HOLDER');
-      for (const path of ['/holder/wallet', '/notifications', '/account/settings']) {
+      for (const path of ['/home', '/activity', '/holder/wallet', '/notifications', '/account/settings']) {
         await page.goto(path);
         await expect(page.locator('body').first()).toBeAttached();
         const overflow = await page.evaluate(
@@ -319,6 +427,23 @@ test.describe('Responsive layout on authenticated pages', () => {
         );
         expect(overflow).toBeLessThanOrEqual(1);
       }
+    });
+  }
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 768, height: 1024 },
+    { width: 1440, height: 900 },
+  ]) {
+    test(`institution home has no horizontal overflow at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await seedSession(page, 'INSTITUTION');
+      await expect(page).toHaveURL(/\/home/);
+      await expect(page.getByText('Institution Portal')).toBeVisible();
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(1);
     });
   }
 });

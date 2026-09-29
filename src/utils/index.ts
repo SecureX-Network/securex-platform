@@ -8,6 +8,8 @@ export {
   getInstitutionStatusBadgeVariant,
 } from "./status";
 export { generateId } from "./id";
+export { toCsv, downloadCsv, csvFilename } from "./csv";
+export type { CsvColumn } from "./csv";
 export { formatDate, truncateHash } from "./format";
 export {
   isPublicCredentialId,

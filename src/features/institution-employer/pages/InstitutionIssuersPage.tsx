@@ -328,8 +328,8 @@ export default function InstitutionIssuersPage() {
             error={formErrors.email || undefined}
           />
           <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 text-xs text-neutral-500">
-            A signing key pair will be generated for this issuer. The public key
-            will be registered on the SecureX ledger.
+            A signing key pair will be generated for this issuer and stored with
+            the platform.
           </div>
         </form>
       </Modal>

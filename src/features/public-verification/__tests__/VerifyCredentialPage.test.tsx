@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { vi } from 'vitest';
 import VerifyCredentialPage from '@/features/public-verification/pages/VerifyCredentialPage';
-import type { VerificationView } from '@/features/holder-admin/services/holderAdminService';
+import type {
+  VerificationStatus,
+  VerificationView,
+} from '@/features/holder-admin/services/holderAdminService';
 import { ApiError } from '@/services/api/client';
 
 vi.mock('@/features/public-verification/services/publicVerificationService', () => ({
@@ -13,56 +16,83 @@ vi.mock('@/features/public-verification/services/publicVerificationService', () 
 import { verifyPublicCredential } from '@/features/public-verification/services/publicVerificationService';
 const viewMock = vi.mocked(verifyPublicCredential);
 
-const validView: VerificationView = {
-  status: 'VALID',
-  credentialId: 'SX-7A31-C0E4-19F6',
-  issuer: {
-    issuerId: 'issuer-1',
-    name: 'SecureX Demo University',
-    publicKey: 'pubkey',
-    status: 'ACTIVE',
-  },
-  issuerSignatureValid: true,
-  transaction: { id: 'tx-1', type: 'CREDENTIAL_ISSUE', blockHeight: 5, blockHash: 'block-5' },
-  block: { height: 5, hash: 'block-5', timestamp: '2024-01-02T00:00:00.000Z', proposer: 'val-1' },
-  verifiedAt: '2024-01-03T00:00:00.000Z',
-  securityChecks: { issuerSignatureValid: true },
+const NOT_PERFORMED = {
+  verified: false,
+  available: false,
+  status: 'UNVERIFIED' as const,
+  detail: 'SecureX does not perform this check, so nothing is claimed about it.',
 };
 
-const revokedView: VerificationView = {
-  status: 'REVOKED',
+const RECORD_FOUND = {
+  verified: true,
+  available: true,
+  status: 'VERIFIED' as const,
+  detail: 'A credential record with this ID exists in the SecureX Platform.',
+};
+
+const RECORD_MISSING = {
+  verified: false,
+  available: true,
+  status: 'NOT_FOUND' as const,
+  detail: 'No credential record with this ID exists in the SecureX Platform.',
+};
+
+function buildView(
+  status: VerificationStatus,
+  overrides: Partial<VerificationView> = {},
+): VerificationView {
+  return {
+    credentialId: 'SX-7A31-C0E4-19F6',
+    status,
+    storedStatus: status,
+    issuerName: 'SecureX Demo University',
+    issuedAt: '2024-01-02T00:00:00.000Z',
+    expiresAt: null,
+    revokedAt: null,
+    verifiedAt: '2024-01-03T00:00:00.000Z',
+    checks: {
+      credentialRecord: RECORD_FOUND,
+      blockchainProof: NOT_PERFORMED,
+      signature: NOT_PERFORMED,
+    },
+    message: 'Credential record verified.',
+    ...overrides,
+  };
+}
+
+const validView = buildView('VALID');
+const revokedView = buildView('REVOKED', {
   credentialId: 'SX-4B8D-6A2F-C701',
-  issuer: {
-    issuerId: 'issuer-1',
-    name: 'SecureX Demo University',
-    publicKey: 'pubkey',
-    status: 'ACTIVE',
-  },
-  verifiedAt: '2024-01-03T00:00:00.000Z',
-};
-
-const notFoundView: VerificationView = {
-  status: 'NOT_FOUND',
+  revokedAt: '2024-03-01T00:00:00.000Z',
+  message: 'Credential record found. It has been revoked and is no longer VALID.',
+});
+const notFoundView = buildView('NOT_FOUND', {
   credentialId: 'SX-ABCD-0000-0000',
-  message: 'Credential not found on the SecureX ledger.',
-};
-
-const unverifiableView: VerificationView = {
-  status: 'UNVERIFIABLE',
-  credentialId: 'SX-A1B2-0000-0000',
-};
-
-const tamperView: VerificationView = {
-  ...validView,
-  documentHashCheck: {
+  issuerName: null,
+  issuedAt: null,
+  checks: {
+    credentialRecord: RECORD_MISSING,
+    blockchainProof: NOT_PERFORMED,
+    signature: NOT_PERFORMED,
+  },
+  message: 'No credential record with this ID exists in the SecureX Platform.',
+});
+const expiredView = buildView('EXPIRED', {
+  storedStatus: 'VALID',
+  expiresAt: '2023-06-01T00:00:00.000Z',
+  message: 'Credential record found, but it is past its expiration date.',
+});
+const tamperView = buildView('VALID', {
+  documentIntegrity: {
     credentialId: 'SX-7A31-C0E4-19F6',
     suppliedHash: 'a'.repeat(64),
-    anchoredHash: 'b'.repeat(64),
     hashMatch: false,
     status: 'TAMPERED',
+    scope: 'PLATFORM_RECORD',
+    detail: 'The supplied hash does not match the platform record.',
     verifiedAt: '2024-01-03T00:00:00.000Z',
   },
-};
+});
 
 function renderPage(initialEntries: string[] = ['/verify/SX-7A31-C0E4-19F6']) {
   return render(
@@ -92,25 +122,25 @@ describe('VerifyCredentialPage (real backend verification)', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows a valid result sourced from the real backend', async () => {
+  it('shows a valid result and names the issuer without inventing a ledger proof', async () => {
     viewMock.mockResolvedValueOnce(validView);
     renderPage();
     await waitFor(() => {
       expect(screen.getByText('Credential verified')).toBeInTheDocument();
     });
     expect(viewMock).toHaveBeenCalledWith('SX-7A31-C0E4-19F6', undefined);
-    expect(screen.getByText('Anchored to SecureX ledger')).toBeInTheDocument();
+    expect(screen.getByText('SecureX Demo University')).toBeInTheDocument();
+    // The blockchain proof is reported as not performed, never as verified.
+    expect(screen.getAllByText('Not performed')).toHaveLength(2);
+    expect(screen.queryByText('Anchored to SecureX ledger')).not.toBeInTheDocument();
   });
 
-  it('shows a revoked result without assuming block/transaction data', async () => {
+  it('shows a revoked result', async () => {
     viewMock.mockResolvedValueOnce(revokedView);
     renderPage(['/verify/SX-4B8D-6A2F-C701']);
     await waitFor(() => {
       expect(screen.getByText('Credential is not valid')).toBeInTheDocument();
     });
-    expect(
-      screen.getByText('No on-ledger record available'),
-    ).toBeInTheDocument();
   });
 
   it('shows a not-found result when the backend returns NOT_FOUND', async () => {
@@ -120,30 +150,45 @@ describe('VerifyCredentialPage (real backend verification)', () => {
       expect(screen.getByText('Credential not found')).toBeInTheDocument();
     });
     expect(
-      screen.getByText('Credential not found on the SecureX ledger.'),
-    ).toBeInTheDocument();
-    expect(screen.getByText('No on-ledger record available')).toBeInTheDocument();
+      screen.getAllByText('No credential record with this ID exists in the SecureX Platform.'),
+    ).toHaveLength(2);
+    expect(screen.getByText('No record')).toBeInTheDocument();
   });
 
-  it('shows an unverifiable result', async () => {
-    viewMock.mockResolvedValueOnce(unverifiableView);
-    renderPage(['/verify/SX-A1B2-0000-0000']);
+  it('shows an expired result and states that the status was derived', async () => {
+    viewMock.mockResolvedValueOnce(expiredView);
+    renderPage(['/verify/SX-7A31-C0E4-19F6']);
     await waitFor(() => {
-      expect(
-        screen.getByText('Credential could not be verified'),
-      ).toBeInTheDocument();
+      expect(screen.getByText('Credential expired')).toBeInTheDocument();
     });
+    expect(
+      screen.getByText(/EXPIRED \(derived from the expiration date on the record\)/),
+    ).toBeInTheDocument();
   });
 
-  it('surfaces documentHashCheck TAMPERED when the anchored hash differs', async () => {
+  it('states plainly that no document hash was supplied when none was given', async () => {
+    viewMock.mockResolvedValueOnce(validView);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('Credential verified')).toBeInTheDocument();
+    });
+    expect(screen.getByText('No document hash was supplied')).toBeInTheDocument();
+  });
+
+  it('surfaces a TAMPERED document integrity result when the hash differs', async () => {
     viewMock.mockResolvedValueOnce(tamperView);
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('Document tampered')).toBeInTheDocument();
+      expect(
+        screen.getByText('Document does not match the platform record'),
+      ).toBeInTheDocument();
     });
+    expect(
+      screen.getByText('The supplied hash does not match the platform record.'),
+    ).toBeInTheDocument();
   });
 
-  it('runs a document tamper check with the supplied hash via the real backend', async () => {
+  it('runs a document integrity check with the supplied hash via the real backend', async () => {
     viewMock.mockResolvedValueOnce(validView);
     renderPage();
     await waitFor(() => {
@@ -156,7 +201,9 @@ describe('VerifyCredentialPage (real backend verification)', () => {
 
     await waitFor(() => {
       expect(viewMock).toHaveBeenCalledWith('SX-7A31-C0E4-19F6', 'a'.repeat(64));
-      expect(screen.getByText('Document tampered')).toBeInTheDocument();
+      expect(
+        screen.getByText('Document does not match the platform record'),
+      ).toBeInTheDocument();
     });
   });
 

@@ -89,36 +89,6 @@ export interface Credential {
   metadata?: Record<string, string>;
 }
 
-export interface VerificationResult {
-  credentialId: string;
-  status: CredentialStatus;
-  credential?: Credential;
-  issuer: {
-    name: string;
-    verified: boolean;
-    publicKey?: string;
-  };
-  blockchainProof: {
-    verified: boolean;
-    txHash?: string;
-    blockHeight?: number;
-    confirmations?: number;
-    timestamp?: string;
-  };
-  signatureVerification: {
-    valid: boolean;
-    algorithm?: string;
-    verifiedAt?: string;
-  };
-  fraudCheck: {
-    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-    flags: string[];
-    score: number;
-  };
-  verifiedAt: string;
-  verifiedBy?: string;
-}
-
 export interface VerificationHistory {
   id: string;
   credentialId: string;

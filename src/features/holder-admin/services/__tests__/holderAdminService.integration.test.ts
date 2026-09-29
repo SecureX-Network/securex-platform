@@ -1,25 +1,29 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '@/services/api/client';
-import {
-  getCredentialIdsForHolder,
-  resetOwnershipRegistry,
-} from '../holderOwnership';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { API_BASE_URL } from '@/constants';
 import type {
-  ApiAuditEvent,
-  ApiCredential,
-  ApiIssuer,
-  ApiIssuerHistory,
-  ApiVerifyResult,
-} from '@/features/holder-admin/types/backend';
-import type { ApiTransaction } from '@/features/explorer-simulation/types/backend';
+  ChainAuditEventDto,
+  ChainCredentialHistoryDto,
+  ChainHealthDto,
+  ChainIssuerDto,
+  ChainIssuerHistoryDto,
+  ChainMutationReceiptDto,
+  ChainStateDto,
+} from '@/services/api/blockchainProxy';
+import type { PublicVerificationResult } from '@/services/api/verificationService';
+import type { Credential } from '@/types';
 
-// Integration-oriented tests for the REAL SecureX Blockchain V3.1 API mapping.
+// Integration-oriented tests for the REAL SecureX Platform API mapping.
 //
-// These exercise the actual holderAdminService mapping logic (and the real
-// requestJson client wrapper) against a stubbed global fetch, so they NEVER
-// depend on a live production backend and do NOT invent any endpoints. The
-// stub returns exactly the shapes the backend contract defines in
-// src/features/holder-admin/types/backend.ts.
+// These exercise the actual holderAdminService logic (and the real requestJson
+// client wrapper) against a stubbed global fetch, so they NEVER depend on a live
+// service and do NOT invent any endpoints.
+//
+// Two rules are asserted throughout, because they are the architecture:
+//   1. The browser has ONE egress: the Platform API. Chain reads/writes are
+//      requested from /api/blockchain/* and proxied server-side.
+//   2. Access control is server-side. There is no browser-side ownership
+//      registry, so the service never filters another caller's data locally and
+//      never invents a 403 the backend did not return.
 
 interface FakeResponse {
   ok: boolean;
@@ -35,10 +39,6 @@ function fakeApi<T>(data: T, status = 200): FakeResponse {
   return jsonResponse({ success: true, data }, status);
 }
 
-function failApi(error: string, message: string, status: number): FakeResponse {
-  return jsonResponse({ success: false, error, message }, status);
-}
-
 let fetchMock: ReturnType<typeof vi.fn>;
 
 async function loadRealService() {
@@ -48,310 +48,343 @@ async function loadRealService() {
   return mod;
 }
 
-const sampleIssuer: ApiIssuer = {
+/** The url passed to fetch for the nth call. */
+function callUrl(index: number): string {
+  return String(fetchMock.mock.calls[index]![0]);
+}
+
+/** The parsed JSON body of the nth call. */
+function callBody(index: number): Record<string, unknown> {
+  return JSON.parse(String(fetchMock.mock.calls[index]![1].body)) as Record<
+    string,
+    unknown
+  >;
+}
+
+const sampleCredential: Credential = {
+  id: 'SX-7A31-C0E4-19F6',
+  credentialId: 'SX-7A31-C0E4-19F6',
+  type: 'Degree',
+  title: 'B.Tech Computer Science',
+  description: '',
+  holderName: 'Asha Patel',
+  holderId: 'usr-holder-001',
   issuerId: 'issuer-1',
+  issuerName: 'SecureX Demo University',
+  institutionId: 'inst-1',
+  institutionName: 'SecureX Demo University',
+  status: 'VALID',
+  issuedAt: '2024-01-02T00:00:00.000Z',
+};
+
+const sampleIssuer: ChainIssuerDto = {
+  id: 'issuer-1',
   name: 'SecureX Demo University',
   publicKey: 'pubkey-1',
   status: 'ACTIVE',
-  registeredAt: '2024-01-01T00:00:00.000Z',
-  metadata: {},
+  createdAt: '2024-01-01T00:00:00.000Z',
 };
 
-const sampleCredential: ApiCredential = {
-  credentialId: 'sxu-btech-2026-0001',
-  issuerId: 'issuer-1',
-  credentialHash: 'a'.repeat(64),
-  status: 'ACTIVE',
-  schemaVersion: '1.0',
-  issuedAt: '2024-01-02T00:00:00.000Z',
-  lastUpdated: '2024-01-02T00:00:00.000Z',
-  metadata: { credentialType: 'B.Tech', subject: 'Computer Science Engineering' },
-  lifecycle: [
-    { type: 'ISSUED', timestamp: '2024-01-02T00:00:00.000Z', txId: 'tx-1', blockHeight: 5 },
+const sampleIssuerHistory: ChainIssuerHistoryDto = {
+  issuerHistory: [],
+  credentials: [
+    { currentStatus: 'ACTIVE', lastEvent: null, eventCount: 1 },
+    { currentStatus: 'REVOKED', lastEvent: null, eventCount: 2 },
   ],
 };
 
-const sampleVerify: ApiVerifyResult = {
-  status: 'VALID',
-  credentialId: 'sxu-btech-2026-0001',
-  credentialHash: 'a'.repeat(64),
-  issuer: { issuerId: 'issuer-1', name: 'SecureX Demo University', publicKey: 'pubkey-1', status: 'ACTIVE' },
-  transaction: { id: 'tx-1', type: 'CREDENTIAL_ISSUE', sender: 'issuer-1', nonce: 1, blockHeight: 5, blockHash: 'block-5' },
-  block: { height: 5, hash: 'block-5', timestamp: '2024-01-02T00:00:00.000Z', previousHash: 'prev', proposer: 'val-1', version: 2 },
-  issuerSignatureValid: true,
-  keyStatus: 'ACTIVE',
-  protocolCompatible: true,
-  verifiedAt: '2024-01-03T00:00:00.000Z',
+const NOT_PERFORMED = {
+  verified: false,
+  available: false,
+  status: 'UNVERIFIED' as const,
+  detail:
+    'Blockchain anchoring is not verified. SecureX has not obtained a block inclusion proof for this credential.',
 };
+
+function buildVerification(
+  overrides: Partial<PublicVerificationResult> = {},
+): PublicVerificationResult {
+  return {
+    credentialId: 'SX-7A31-C0E4-19F6',
+    status: 'VALID',
+    storedStatus: 'VALID',
+    issuerName: 'SecureX Demo University',
+    issuedAt: '2024-01-02T00:00:00.000Z',
+    expiresAt: null,
+    revokedAt: null,
+    verifiedAt: '2024-01-03T00:00:00.000Z',
+    checks: {
+      credentialRecord: {
+        verified: true,
+        available: true,
+        status: 'VERIFIED',
+        detail: 'A credential record with this ID exists in the SecureX Platform.',
+      },
+      blockchainProof: NOT_PERFORMED,
+      signature: NOT_PERFORMED,
+    },
+    message: 'Credential record verified.',
+    ...overrides,
+  };
+}
 
 describe('holderAdminService real backend integration', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
+    localStorage.removeItem('securex_auth_token');
   });
 
-  it('maps a real backend credential (ACTIVE -> VALID) with issuer name', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  // -------------------------------------------------------------------------
+  // Credential records
+  // -------------------------------------------------------------------------
+
+  it('reads a credential from the Platform API record', async () => {
     const svc = await loadRealService();
-    fetchMock
-      .mockResolvedValueOnce(fakeApi(sampleCredential))
-      .mockResolvedValueOnce(fakeApi(sampleIssuer));
+    fetchMock.mockResolvedValueOnce(fakeApi(sampleCredential));
 
-    const credential = await svc.getRealCredential('sxu-btech-2026-0001');
+    const credential = await svc.getRealCredential('SX-7A31-C0E4-19F6');
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/credentials/sxu-btech-2026-0001'),
-      expect.anything(),
-    );
-    expect(credential.id).toBe('sxu-btech-2026-0001');
+    expect(callUrl(0)).toContain('/credentials/SX-7A31-C0E4-19F6');
+    // Display data is the platform record's, returned as-is: the service never
+    // re-derives holder/issuer names from the chain.
+    expect(credential.credentialId).toBe('SX-7A31-C0E4-19F6');
     expect(credential.status).toBe('VALID');
     expect(credential.issuerName).toBe('SecureX Demo University');
-    expect(credential.blockchainTxHash).toBe('tx-1');
   });
 
-  it('maps REVOKED and SUSPENDED backend statuses onto shared statuses', async () => {
+  it('lists credentials from the Platform API', async () => {
     const svc = await loadRealService();
-    fetchMock.mockResolvedValueOnce(
-      fakeApi({ ...sampleCredential, status: 'REVOKED', revokedAt: '2024-02-01T00:00:00.000Z' }),
-    );
-    const revoked = await svc.getRealCredential('sxu-mba-2026-0001');
-    expect(revoked.status).toBe('REVOKED');
-
-    fetchMock.mockResolvedValueOnce(
-      fakeApi({ ...sampleCredential, status: 'SUSPENDED', suspendedAt: '2024-02-01T00:00:00.000Z' }),
-    );
-    const suspended = await svc.getRealCredential('sxu-mba-2026-0001');
-    expect(suspended.status).toBe('SUSPENDED');
-  });
-
-  it('lists issuers with credential counts derived from issuer history', async () => {
-    const svc = await loadRealService();
-    const history: ApiIssuerHistory = {
-      issuerHistory: [],
-      credentials: [{ currentStatus: 'ACTIVE', lastEvent: null, eventCount: 1 }],
-    };
-    fetchMock
-      .mockResolvedValueOnce(fakeApi([sampleIssuer]))
-      .mockResolvedValueOnce(fakeApi(history));
-
-    const issuers = await svc.getRealIssuers();
-
-    expect(issuers).toHaveLength(1);
-    expect(issuers[0]!.name).toBe('SecureX Demo University');
-    expect(issuers[0]!.status).toBe('ACTIVE');
-    expect(issuers[0]!.credentialsIssued).toBe(1);
-  });
-
-  it('maps verification statuses for every backend state', async () => {
-    const svc = await loadRealService();
-    for (const status of ['VALID', 'REVOKED', 'SUSPENDED', 'EXPIRED', 'INVALID', 'NOT_FOUND', 'UNVERIFIABLE'] as const) {
-      fetchMock.mockResolvedValueOnce(fakeApi({ ...sampleVerify, status }));
-      const view = await svc.verifyRealCredential('sxu-btech-2026-0001');
-      expect(view.status).toBe(status);
-      if (status === 'NOT_FOUND') {
-        expect(view.message).toContain('not found');
-      } else {
-        expect(view.message).toBeUndefined();
-      }
-    }
-  });
-
-  it('verifies with a document hash via POST /verify', async () => {
-    const svc = await loadRealService();
-    fetchMock.mockResolvedValueOnce(
-      fakeApi({
-        ...sampleVerify,
-        documentHashCheck: {
-          credentialId: 'sxu-btech-2026-0001',
-          suppliedHash: 'b'.repeat(64),
-          anchoredHash: 'a'.repeat(64),
-          hashMatch: false,
-          status: 'TAMPERED',
-          verifiedAt: '2024-01-03T00:00:00.000Z',
-        },
-      }),
-    );
-
-    const view = await svc.verifyRealCredential('sxu-btech-2026-0001', 'b'.repeat(64));
-    expect(view.documentHashCheck?.status).toBe('TAMPERED');
-    expect(fetchMock.mock.calls[0]![1].method).toBe('POST');
-  });
-
-  it('performs credential lifecycle mutations via the POST /transactions contract', async () => {
-    const svc = await loadRealService();
-
-    const submitted = { submitted: true, id: 'tx-99', status: 'PENDING' };
-
-    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
-    const suspend = await svc.suspendRealCredential('sxu-btech-2026-0001', 'review');
-    expect(suspend.submitted).toBe(true);
-    expect(suspend.type).toBe('CREDENTIAL_SUSPEND');
-    expect(fetchMock.mock.calls[0]![0]).toContain('/transactions');
-    expect(fetchMock.mock.calls[0]![1].method).toBe('POST');
-    const suspendTx = JSON.parse(fetchMock.mock.calls[0]![1].body) as ApiTransaction;
-    expect(suspendTx.type).toBe('CREDENTIAL_SUSPEND');
-    expect(suspendTx.payload).toEqual({ credentialId: 'sxu-btech-2026-0001', reason: 'review' });
-
-    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
-    const reinstate = await svc.reinstateRealCredential('sxu-btech-2026-0001');
-    expect(fetchMock.mock.calls[1]![0]).toContain('/transactions');
-    const reinstateTx = JSON.parse(fetchMock.mock.calls[1]![1].body) as ApiTransaction;
-    expect(reinstateTx.type).toBe('CREDENTIAL_REINSTATE');
-    expect(reinstateTx.payload).toEqual({ credentialId: 'sxu-btech-2026-0001' });
-    expect(reinstate.submitted).toBe(true);
-
-    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
-    const revoke = await svc.revokeRealCredential('sxu-btech-2026-0001', 'fraud');
-    expect(fetchMock.mock.calls[2]![0]).toContain('/transactions');
-    const revokeTx = JSON.parse(fetchMock.mock.calls[2]![1].body) as ApiTransaction;
-    expect(revokeTx.type).toBe('CREDENTIAL_REVOKE');
-    expect(revokeTx.payload).toEqual({ credentialId: 'sxu-btech-2026-0001', reason: 'fraud' });
-    expect(revoke.submitted).toBe(true);
-  });
-
-  it('rejects a lifecycle transition the backend refused', async () => {
-    const svc = await loadRealService();
-    fetchMock.mockResolvedValueOnce(
-      fakeApi({ submitted: false, id: 'x', type: 'SUSPEND', sender: 's', nonce: 1, status: 'PENDING' }),
-    );
-    await expect(svc.suspendRealCredential('sxu-btech-2026-0001')).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 400,
-    });
-  });
-
-  it('enumerates the on-chain credential set and skips unknown IDs', async () => {
-    const svc = await loadRealService();
-    // issuers list
-    fetchMock.mockResolvedValueOnce(fakeApi([sampleIssuer]));
-    // first demo credential resolves, all others 404
-    const { REAL_DEMO_CREDENTIAL_IDS } = await loadRealService();
-    for (let i = 0; i < REAL_DEMO_CREDENTIAL_IDS.length; i++) {
-      fetchMock.mockResolvedValueOnce(
-        i === 0 ? fakeApi(sampleCredential) : failApi('CREDENTIAL_NOT_FOUND', 'Credential not found', 404),
-      );
-    }
+    fetchMock.mockResolvedValueOnce(fakeApi([sampleCredential]));
 
     const credentials = await svc.getRealCredentials();
+
+    expect(callUrl(0)).toContain('/credentials');
     expect(credentials).toHaveLength(1);
-    expect(credentials[0]!.credentialId).toBe('sxu-btech-2026-0001');
   });
 
-  it('maps backend audit events onto the shared AuditEvent shape', async () => {
+  it('narrows the holder wallet server-side and never filters locally', async () => {
     const svc = await loadRealService();
-    const event: ApiAuditEvent = {
-      id: 'ev-1',
-      type: 'CREDENTIAL_SUSPEND',
-      timestamp: '2024-01-02T00:00:00.000Z',
-      severity: 'warning',
-      message: 'credential suspended for review',
-      referenceType: 'credential',
-      credentialId: 'sxu-btech-2026-0001',
-      actor: 'issuer-1',
+    const otherHolderCredential: Credential = {
+      ...sampleCredential,
+      credentialId: 'SX-AAAA-0000-0000',
+      id: 'SX-AAAA-0000-0000',
+      holderId: 'usr-holder-009',
     };
-    fetchMock.mockResolvedValueOnce(fakeApi([event]));
+    fetchMock.mockResolvedValue(fakeApi([sampleCredential, otherHolderCredential]));
 
-    const events = await svc.getRealAuditEvents(50, 0);
-    expect(events).toHaveLength(1);
-    expect(events[0]!.id).toBe('ev-1');
-    expect(events[0]!.action).toBe('CREDENTIAL_SUSPEND');
-    expect(events[0]!.details).toContain('review');
-    expect(events[0]!.target).toBe('sxu-btech-2026-0001');
+    const view = await svc.getHolderCredentialsView('usr-holder-001');
+
+    // The holder id is forwarded as a filter the BACKEND applies; whatever the
+    // backend returns is what the holder sees. The client does not second-guess
+    // it with a local ownership list.
+    expect(callUrl(0)).toContain('/credentials?holderId=usr-holder-001');
+    expect(view.map((c) => c.credentialId)).toEqual([
+      'SX-7A31-C0E4-19F6',
+      'SX-AAAA-0000-0000',
+    ]);
   });
 
-  it('surfaces a 404 as an ApiError (and does not retry 4xx)', async () => {
+  it('returns an empty wallet without inventing credentials', async () => {
     const svc = await loadRealService();
-    fetchMock.mockResolvedValue(failApi('UNKNOWN_ISSUER', 'Issuer not found', 404));
+    fetchMock.mockResolvedValueOnce(fakeApi([]));
 
-    await expect(svc.getRealIssuer('missing')).rejects.toMatchObject({
+    const view = await svc.getHolderCredentialsView('usr-holder-404');
+    expect(view).toEqual([]);
+  });
+
+  it('surfaces the backend verdict for a credential outside the caller scope', async () => {
+    const svc = await loadRealService();
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        { success: false, error: 'Not found', message: 'Credential not found' },
+        404,
+      ),
+    );
+
+    // No browser-side ownership check precedes the request: the Platform API is
+    // the only authority on who may read a credential.
+    await expect(svc.getRealCredential('SX-XXXX-0000-0000')).rejects.toMatchObject({
       name: 'ApiError',
       status: 404,
-      message: 'Issuer not found',
+      message: 'Credential not found',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('throws an ApiError status 0 when the network is unreachable', async () => {
+  it('reads the on-chain lifecycle history through the proxy', async () => {
     const svc = await loadRealService();
-    fetchMock.mockRejectedValue(new ApiError('Unable to reach the service. Please check your connection and try again.', 0));
+    const history: ChainCredentialHistoryDto = [
+      {
+        type: 'ISSUED',
+        timestamp: '2024-01-02T00:00:00.000Z',
+        transactionId: 'tx-1',
+        blockHeight: 5,
+      },
+    ];
+    fetchMock.mockResolvedValueOnce(fakeApi(history));
 
-    await expect(svc.getRealIssuer('issuer-1')).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 0,
-    });
+    const events = await svc.getRealCredentialHistory('SX-7A31-C0E4-19F6');
+
+    expect(callUrl(0)).toContain('/blockchain/credentials/SX-7A31-C0E4-19F6/history');
+    expect(events).toHaveLength(1);
+    expect(events[0]!.transactionId).toBe('tx-1');
   });
-});
 
-describe('holder access control (off-chain ownership registry)', () => {
-  beforeEach(() => {
-    fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-  });
+  // -------------------------------------------------------------------------
+  // Verification (public verification DTO)
+  // -------------------------------------------------------------------------
 
-  it('rejects access to a credential the holder does not own with an honest 403', async () => {
+  it('verifies through the public verification endpoint and keeps unavailable checks unavailable', async () => {
     const svc = await loadRealService();
-    resetOwnershipRegistry();
-    // usr-holder-003 owns only the sxpa-* demo credentials per the seed, so
-    // sxu-btech-2026-0001 is NOT theirs -> the service must refuse up front.
+    fetchMock.mockResolvedValueOnce(fakeApi(buildVerification()));
+
+    const view = await svc.verifyRealCredential('SX-7A31-C0E4-19F6');
+
+    expect(callUrl(0)).toContain('/verifications?credentialId=SX-7A31-C0E4-19F6');
+    expect(view.status).toBe('VALID');
+    expect(view.storedStatus).toBe('VALID');
+    expect(view.issuerName).toBe('SecureX Demo University');
+    expect(view.checks.credentialRecord.verified).toBe(true);
+    // Not implemented checks are reported as such — never upgraded to "verified".
+    expect(view.checks.blockchainProof).toEqual(NOT_PERFORMED);
+    expect(view.checks.signature).toEqual(NOT_PERFORMED);
+  });
+
+  it('reports a NOT_FOUND verification without inventing a ledger answer', async () => {
+    const svc = await loadRealService();
+    fetchMock.mockResolvedValueOnce(
+      fakeApi(
+        buildVerification({
+          credentialId: 'SX-ABCD-0000-0000',
+          status: 'NOT_FOUND',
+          storedStatus: 'NOT_FOUND',
+          issuerName: null,
+          issuedAt: null,
+          checks: {
+            credentialRecord: {
+              verified: false,
+              available: true,
+              status: 'NOT_FOUND',
+              detail: 'No credential record with this ID exists in the SecureX Platform.',
+            },
+            blockchainProof: NOT_PERFORMED,
+            signature: NOT_PERFORMED,
+          },
+          message:
+            'No credential record with this ID exists in the SecureX Platform.',
+        }),
+      ),
+    );
+
+    const view = await svc.verifyRealCredential('SX-ABCD-0000-0000');
+
+    expect(view.status).toBe('NOT_FOUND');
+    expect(view.checks.credentialRecord.verified).toBe(false);
+    expect(view.message).toContain('No credential record');
+  });
+
+  it('verifies a supplied document hash and surfaces the integrity comparison', async () => {
+    const svc = await loadRealService();
+    fetchMock.mockResolvedValueOnce(
+      fakeApi(
+        buildVerification({
+          checks: {
+            credentialRecord: {
+              verified: true,
+              available: true,
+              status: 'VERIFIED',
+              detail: 'A credential record with this ID exists.',
+            },
+            blockchainProof: NOT_PERFORMED,
+            signature: NOT_PERFORMED,
+            documentIntegrity: {
+              credentialId: 'SX-7A31-C0E4-19F6',
+              suppliedHash: 'b'.repeat(64),
+              hashMatch: false,
+              status: 'TAMPERED',
+              scope: 'PLATFORM_RECORD',
+              detail: 'The supplied hash does not match the platform record.',
+              verifiedAt: '2024-01-03T00:00:00.000Z',
+            },
+          },
+        }),
+      ),
+    );
+
+    const view = await svc.verifyRealCredential('SX-7A31-C0E4-19F6', 'b'.repeat(64));
+
+    expect(callUrl(0)).toContain('hash=');
+    expect(view.documentIntegrity?.status).toBe('TAMPERED');
+    expect(view.documentIntegrity?.scope).toBe('PLATFORM_RECORD');
+    // The stored reference itself is never part of the view.
+    expect(view.documentIntegrity).not.toHaveProperty('anchoredHash');
+  });
+
+  // -------------------------------------------------------------------------
+  // Lifecycle transitions
+  // -------------------------------------------------------------------------
+
+  it('relays lifecycle transitions to the proxy with an action payload', async () => {
+    const svc = await loadRealService();
+    const submitted: ChainMutationReceiptDto = {
+      submitted: true,
+      id: 'tx-99',
+      status: 'PENDING',
+    };
+
+    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
+    const suspend = await svc.suspendRealCredential('SX-7A31-C0E4-19F6', 'review');
+    expect(suspend).toEqual(submitted);
+    expect(callUrl(0)).toContain(
+      '/blockchain/credentials/SX-7A31-C0E4-19F6/transitions',
+    );
+    expect(fetchMock.mock.calls[0]![1].method).toBe('POST');
+    expect(callBody(0)).toEqual({ action: 'suspend', reason: 'review' });
+
+    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
+    await svc.reinstateRealCredential('SX-7A31-C0E4-19F6');
+    expect(callBody(1)).toEqual({ action: 'reinstate' });
+
+    fetchMock.mockResolvedValueOnce(fakeApi(submitted));
+    await svc.revokeRealCredential('SX-7A31-C0E4-19F6', 'fraud');
+    expect(callBody(2)).toEqual({ action: 'revoke', reason: 'fraud' });
+  });
+
+  it('treats a not-submitted receipt as a failure instead of a completed change', async () => {
+    const svc = await loadRealService();
+    fetchMock.mockResolvedValueOnce(
+      fakeApi({ submitted: false, id: 'tx-99', status: 'REJECTED' }),
+    );
+
     await expect(
-      svc.getRealCredential('sxu-btech-2026-0001', 'usr-holder-003'),
+      svc.suspendRealCredential('SX-7A31-C0E4-19F6'),
     ).rejects.toMatchObject({
       name: 'ApiError',
-      status: 403,
+      status: 502,
     });
+  });
+
+  it('honestly rejects a reissue (no such lifecycle transition exists)', async () => {
+    const svc = await loadRealService();
+
+    await expect(
+      svc.reissueRealCredential('SX-7A31-C0E4-19F6', {
+        newCredentialId: 'SX-NEW0-0000-0000',
+        newCredentialHash: 'a'.repeat(64),
+      }),
+    ).rejects.toMatchObject({ name: 'ApiError', status: 400 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('allows access when the holder owns the credential', async () => {
+  it('honestly rejects issuer suspend/activate (the ledger governs issuer status)', async () => {
     const svc = await loadRealService();
-    resetOwnershipRegistry();
-    // usr-holder-001 owns the first three demo credentials (incl. btech 0001).
-    fetchMock
-      .mockResolvedValueOnce(fakeApi(sampleCredential))
-      .mockResolvedValueOnce(fakeApi(sampleIssuer));
 
-    const credential = await svc.getRealCredential('sxu-btech-2026-0001', 'usr-holder-001');
-    expect(credential.credentialId).toBe('sxu-btech-2026-0001');
-  });
-
-  it('shows only the credentials the holder owns in their wallet view', async () => {
-    const svc = await loadRealService();
-    resetOwnershipRegistry();
-    // usr-holder-001 owns sxu-btech/mtech/mba-2026-0001 (3 credentials).
-    fetchMock.mockResolvedValueOnce(fakeApi([sampleIssuer]));
-    const owned = getCredentialIdsForHolder('usr-holder-001');
-    for (const id of owned) {
-      fetchMock.mockResolvedValueOnce(fakeApi({ ...sampleCredential, credentialId: id }));
-    }
-
-    const view = await svc.getHolderCredentialsView('usr-holder-001');
-    expect(view.map((c) => c.credentialId).sort()).toEqual([...owned].sort());
-    // All three owned credentials are returned and never another holder's set.
-    expect(view).toHaveLength(3);
-  });
-
-  it('returns an empty wallet (no backend probe) for a holder with no owned credentials', async () => {
-    const svc = await loadRealService();
-    const map: Record<string, string[]> = { 'empty-holder': [] };
-    localStorage.setItem('securex_holder_ownership_v1', JSON.stringify(map));
-    try {
-      const view = await svc.getHolderCredentialsView('empty-holder');
-      expect(view).toEqual([]);
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      localStorage.removeItem('securex_holder_ownership_v1');
-    }
-  });
-});
-
-describe('issuer lifecycle + privileged auth (Target 2 + Target 10)', () => {
-  beforeEach(() => {
-    fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    localStorage.removeItem('securex_holder_ownership_v1');
-  });
-
-  it('honestly rejects issuer suspend/activate (no such backend capability)', async () => {
-    const svc = await loadRealService();
     await expect(svc.suspendRealIssuer('issuer-1', 'policy review')).rejects.toMatchObject({
       name: 'ApiError',
       status: 400,
@@ -363,35 +396,147 @@ describe('issuer lifecycle + privileged auth (Target 2 + Target 10)', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('forwards the configured principal token and does not override it with the UI session token', async () => {
-    const svc = await loadRealService();
-    vi.stubEnv('VITE_BLOCKCHAIN_AUTH_TOKEN', 'tkn-principal');
-    try {
-      localStorage.setItem('securex_auth_token', 'tkn-session');
-      fetchMock.mockResolvedValueOnce(fakeApi({ submitted: true, id: 'tx-1', status: 'PENDING' }));
-      await svc.suspendRealCredential('sxu-btech-2026-0001');
+  // -------------------------------------------------------------------------
+  // Issuers
+  // -------------------------------------------------------------------------
 
-      const headers = new Headers(fetchMock.mock.calls[0]![1].headers);
-      expect(headers.get('Authorization')).toBe('Bearer tkn-principal');
-    } finally {
-      vi.unstubAllEnvs();
-      localStorage.removeItem('securex_auth_token');
+  it('lists issuers with credential counts derived from issuer history', async () => {
+    const svc = await loadRealService();
+    fetchMock
+      .mockResolvedValueOnce(fakeApi([sampleIssuer]))
+      .mockResolvedValueOnce(fakeApi(sampleIssuerHistory));
+
+    const issuers = await svc.getRealIssuers();
+
+    expect(callUrl(0)).toContain('/blockchain/issuers');
+    expect(callUrl(1)).toContain('/blockchain/issuers/issuer-1/history');
+    expect(issuers).toHaveLength(1);
+    expect(issuers[0]!.name).toBe('SecureX Demo University');
+    expect(issuers[0]!.status).toBe('ACTIVE');
+    expect(issuers[0]!.credentialsIssued).toBe(2);
+  });
+
+  it('never presents an unrecognized chain issuer status as ACTIVE', async () => {
+    const svc = await loadRealService();
+    fetchMock
+      .mockResolvedValueOnce(
+        fakeApi([{ ...sampleIssuer, status: 'SOMETHING_NEW' }]),
+      )
+      .mockResolvedValueOnce(fakeApi(sampleIssuerHistory));
+
+    const issuers = await svc.getRealIssuers();
+    expect(issuers[0]!.status).toBe('SUSPENDED');
+  });
+
+  it('reports zero credentials when issuer history is unavailable', async () => {
+    const svc = await loadRealService();
+    fetchMock
+      .mockResolvedValueOnce(fakeApi([sampleIssuer]))
+      .mockRejectedValue(new Error('history unavailable'));
+
+    const issuers = await svc.getRealIssuers();
+    expect(issuers[0]!.credentialsIssued).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Audit / operational reads
+  // -------------------------------------------------------------------------
+
+  it('maps audit events and derives a display role from the acting identity', async () => {
+    const svc = await loadRealService();
+    const events: ChainAuditEventDto[] = [
+      {
+        id: 'evt-1',
+        type: 'CREDENTIAL_SUSPENDED',
+        timestamp: '2024-02-01T00:00:00.000Z',
+        severity: 'WARNING',
+        message: 'Credential suspended for review',
+        referenceType: 'credential',
+        referenceId: 'SX-7A31-C0E4-19F6',
+        actor: 'issuer-1',
+      },
+    ];
+    fetchMock.mockResolvedValueOnce(fakeApi(events));
+
+    const audit = await svc.getRealAuditEvents();
+
+    expect(callUrl(0)).toContain('/blockchain/audit/events?limit=100&offset=0');
+    expect(audit[0]!.action).toBe('CREDENTIAL_SUSPENDED');
+    expect(audit[0]!.actorRole).toBe('ISSUER');
+    expect(audit[0]!.target).toBe('SX-7A31-C0E4-19F6');
+    expect(audit[0]!.targetType).toBe('credential');
+  });
+
+  it('reports null health and state instead of throwing when the chain is unreachable', async () => {
+    const svc = await loadRealService();
+    const health: ChainHealthDto = {
+      status: 'UP',
+      height: 100,
+      peerCount: 3,
+      nodeVersion: 'v3.1.0',
+      protocolVersion: '3.1',
+      checkedAt: '2024-01-01T00:00:00.000Z',
+    };
+    const state: ChainStateDto = {
+      height: 100,
+      issuers: 2,
+      credentials: 9,
+      validators: 5,
+      keys: 5,
+    };
+    fetchMock.mockResolvedValueOnce(fakeApi(health)).mockResolvedValueOnce(fakeApi(state));
+
+    expect((await svc.getBackendHealth())?.height).toBe(100);
+    expect((await svc.getRealStateSummary())?.credentials).toBe(9);
+
+    fetchMock.mockImplementation(async () => {
+      throw new TypeError('fetch failed');
+    });
+    expect(await svc.getBackendHealth()).toBeNull();
+    expect(await svc.getRealStateSummary()).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Transport contract
+  // -------------------------------------------------------------------------
+
+  it('sends the Platform API session token and nothing else', async () => {
+    const svc = await loadRealService();
+    localStorage.setItem('securex_auth_token', 'tkn-session');
+    // A blockchain service credential must never be configurable from the
+    // browser: even if one is present in the environment it is not sent.
+    vi.stubEnv('VITE_BLOCKCHAIN_AUTH_TOKEN', 'tkn-principal');
+    fetchMock.mockResolvedValueOnce(fakeApi(sampleCredential));
+
+    await svc.getRealCredential('SX-7A31-C0E4-19F6');
+
+    const headers = new Headers(fetchMock.mock.calls[0]![1].headers);
+    expect(headers.get('Authorization')).toBe('Bearer tkn-session');
+  });
+
+  it('never contacts a blockchain service host directly', async () => {
+    const svc = await loadRealService();
+    fetchMock.mockResolvedValue(fakeApi(sampleCredential));
+
+    await svc.getRealCredential('SX-7A31-C0E4-19F6');
+
+    for (const call of fetchMock.mock.calls) {
+      const url = String(call[0]);
+      expect(url.startsWith(API_BASE_URL)).toBe(true);
+      expect(url).not.toContain('BLOCKCHAIN_API_URL');
     }
   });
 
-  it('produces authorization via the configured principal token even when it equals the session token shape', async () => {
+  it('throws an ApiError status 0 when the network is unreachable', async () => {
     const svc = await loadRealService();
-    vi.stubEnv('VITE_BLOCKCHAIN_AUTH_TOKEN', 'admin:secret');
-    try {
-      localStorage.setItem('securex_auth_token', 'some-other-session');
-      fetchMock.mockResolvedValueOnce(fakeApi({ submitted: true, id: 'tx-2', status: 'PENDING' }));
-      await svc.revokeRealCredential('sxu-btech-2026-0001');
+    fetchMock.mockImplementation(async () => {
+      throw new TypeError('fetch failed');
+    });
 
-      const headers = new Headers(fetchMock.mock.calls[0]![1].headers);
-      expect(headers.get('Authorization')).toBe('Bearer admin:secret');
-    } finally {
-      vi.unstubAllEnvs();
-      localStorage.removeItem('securex_auth_token');
-    }
+    await expect(svc.getRealCredential('SX-7A31-C0E4-19F6')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 0,
+      message: 'Unable to reach the service. Please check your connection and try again.',
+    });
   });
 });

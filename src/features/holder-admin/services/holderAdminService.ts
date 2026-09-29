@@ -1,33 +1,27 @@
 import { IS_MOCK } from '@/constants';
-import { ApiError, fetchBlockchainAPI } from '@/services/api/client';
+import { ApiError, fetchPlatformAPI } from '@/services/api/client';
+import {
+  CHAIN_API_PREFIX,
+  type ChainAuditEventDto,
+  type ChainCredentialHistoryDto,
+  type ChainHealthDto,
+  type ChainIssuerDto,
+  type ChainIssuerHistoryDto,
+  type ChainMutationReceiptDto,
+  type ChainQrReferenceDto,
+  type ChainQrVerifyDto,
+  type ChainStateDto,
+} from '@/services/api/blockchainProxy';
 import { mockDelay } from '@/services/mock';
 import type { AuditEvent, Credential, Issuer, UserRole } from '@/types';
 import { SECUREX_QR_PREFIX } from '@/utils';
 import { parseSecureXQr } from '@/utils/publicCredentialId';
-import type {
-  ApiAuditEvent,
-  ApiCredential,
-  ApiCredentialHistoryEntry,
-  ApiHealth,
-  ApiIssuer,
-  ApiIssuerHistory,
-  ApiMutationReceipt,
-  ApiQrReference,
-  ApiStateSummary,
-  ApiVerificationStatus,
-  ApiVerifyResult,
-} from '@/features/holder-admin/types/backend';
-import type {
-  ApiTransaction,
-  ApiTransactionType,
-} from '@/features/explorer-simulation/types/backend';
 import {
   REAL_DEMO_CREDENTIAL_IDS,
   REAL_DEMO_PUBLIC_CREDENTIAL_IDS,
+  demoPublicIdForInternalId,
   demoQrTokenForPublicId,
   publicIdForDemoQrToken,
-  getCredentialIdsForHolder,
-  holderOwnsCredential,
 } from './holderOwnership';
 
 export type DataSourceMode = 'REAL' | 'DEMO';
@@ -37,22 +31,15 @@ export function getDataSourceMode(): DataSourceMode {
 }
 
 /**
- * Build the Authorization header token for privileged backend endpoints.
+ * Every browser request goes to the SecureX Platform API and carries exactly one
+ * credential: the Platform API session token, which the api client attaches
+ * automatically. The blockchain service credential is server-only
+ * (BLOCKCHAIN_AUTH_TOKEN) and is deliberately NOT configurable from the
+ * frontend: a VITE_* variable would ship it inside the browser bundle.
  *
- * The SecureX blockchain backend uses a dev/demo shared-secret authenticator
- * (role:secret tokens configured via CTN_AUTH_TOKENS). When admin credentials
- * are configured in the frontend environment we forward them; otherwise
- * privileged writes are attempted unauthenticated (module-level cryptographic
- * validation still constrains them). This NEVER stores or fabricates roles in
- * the browser — the backend remains the authority.
+ * Authorization is therefore decided by the Platform API from the session, plus
+ * object-level ownership from the credential's own database row.
  */
-function authHeaders(): HeadersInit {
-  const token = import.meta.env.VITE_BLOCKCHAIN_AUTH_TOKEN as string | undefined;
-  if (token) {
-    return { Authorization: `Bearer ${token}` };
-  }
-  return {};
-}
 
 /**
  * Retry transient failures (network errors or server errors) a couple of times,
@@ -79,85 +66,35 @@ async function runWithRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 600)
   throw lastError;
 }
 
-function mapApiIssuer(issuer: ApiIssuer, credentialsIssued = 0): Issuer {
-  return {
-    id: issuer.issuerId,
-    name: issuer.name,
-    institutionId: issuer.issuerId,
-    institutionName: issuer.name,
-    email: '',
-    publicKey: issuer.publicKey,
-    status: issuer.status,
-    credentialsIssued,
-    createdAt: issuer.registeredAt,
-  };
-}
-
-/** Translate the backend credential record into the shared frontend Credential shape. */
-function mapApiCredential(
-  cred: ApiCredential,
-  issuerName?: string,
-): Credential {
-  const metadata = cred.metadata ?? {};
-  const type = String(metadata.credentialType ?? 'Credential');
-  const subject = String(metadata.subject ?? cred.credentialId);
-  const issueEvent = cred.lifecycle.find((ev) => ev.type === 'ISSUED');
-
-  return {
-    id: cred.credentialId,
-    credentialId: cred.credentialId,
-    type,
-    title: subject,
-    description: '',
-    holderName: '',
-    holderId: '',
-    issuerId: cred.issuerId,
-    issuerName: issuerName || cred.issuerId,
-    institutionId: cred.issuerId,
-    institutionName: issuerName || cred.issuerId,
-    status: mapStatus(cred.status),
-    issuedAt: cred.issuedAt,
-    revokedAt: cred.revokedAt,
-    revokedReason:
-      typeof metadata.revokedReason === 'string' ? metadata.revokedReason : undefined,
-    blockchainTxHash: issueEvent?.txId,
-    merkleRoot: cred.credentialHash,
-    digitalSignature: undefined,
-    templateId: undefined,
-    metadata: {
-      ...Object.fromEntries(
-        Object.entries(metadata).map(([k, v]) => [k, String(v)]),
-      ),
-    },
-  };
-}
-
-/** Backend lifecycle status -> shared CredentialStatus. */
-function mapStatus(
-  status: ApiCredential['status'] | ApiVerificationStatus,
-): Credential['status'] {
+/** Chain issuer status -> the shared Issuer status union. */
+function mapIssuerStatus(status: string): Issuer['status'] {
   switch (status) {
     case 'ACTIVE':
-    case 'ISSUED':
-    case 'CREATED':
-      return 'VALID';
+      return 'ACTIVE';
     case 'REVOKED':
       return 'REVOKED';
     case 'SUSPENDED':
       return 'SUSPENDED';
-    case 'EXPIRED':
-      return 'EXPIRED';
-    case 'REISSUED':
-      return 'REVOKED';
-    case 'INVALID':
-      return 'INVALID';
-    case 'NOT_FOUND':
-      return 'NOT_FOUND';
-    case 'UNVERIFIABLE':
-      return 'INVALID';
     default:
-      return 'INVALID';
+      // An unrecognized chain status is shown as SUSPENDED rather than
+      // presented as ACTIVE: the UI must not imply an active issuer on a
+      // status it does not understand.
+      return 'SUSPENDED';
   }
+}
+
+function mapApiIssuer(issuer: ChainIssuerDto, credentialsIssued = 0): Issuer {
+  return {
+    id: issuer.id,
+    name: issuer.name,
+    institutionId: issuer.id,
+    institutionName: issuer.name,
+    email: '',
+    publicKey: issuer.publicKey,
+    status: mapIssuerStatus(issuer.status),
+    credentialsIssued,
+    createdAt: issuer.createdAt,
+  };
 }
 
 /** Map *frontend* role labels to a verified principal role label. */
@@ -180,10 +117,12 @@ export function roleLabel(role: UserRole): string {
 // Health / connectivity
 // ---------------------------------------------------------------------------
 
-export async function getBackendHealth(): Promise<ApiHealth | null> {
+export async function getBackendHealth(): Promise<ChainHealthDto | null> {
   if (getDataSourceMode() === 'DEMO') return null;
   try {
-    return await runWithRetry(() => fetchBlockchainAPI<ApiHealth>('/health'));
+    return await runWithRetry(() =>
+      fetchPlatformAPI<ChainHealthDto>(`${CHAIN_API_PREFIX}/health`),
+    );
   } catch {
     return null;
   }
@@ -198,13 +137,15 @@ export async function getRealIssuers(): Promise<Issuer[]> {
     const { getAllIssuers } = await import('@/services/api/adminService');
     return getAllIssuers();
   }
-  const issuers = await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/state/issuers'));
+  const issuers = await runWithRetry(() =>
+    fetchPlatformAPI<ChainIssuerDto[]>(`${CHAIN_API_PREFIX}/issuers`),
+  );
   return Promise.all(
     issuers.map(async (issuer) => {
       let count = 0;
       try {
-        const history = await fetchBlockchainAPI<ApiIssuerHistory>(
-          `/state/issuers/${encodeURIComponent(issuer.issuerId)}/history`,
+        const history = await fetchPlatformAPI<ChainIssuerHistoryDto>(
+          `${CHAIN_API_PREFIX}/issuers/${encodeURIComponent(issuer.id)}/history`,
         );
         count = history.credentials.length;
       } catch {
@@ -220,45 +161,43 @@ export async function registerRealIssuer(input: {
   name: string;
   publicKey: string;
   metadata?: Record<string, unknown>;
-}): Promise<ApiMutationReceipt> {
-  const receipt = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiMutationReceipt>('/issuers', {
+}): Promise<ChainMutationReceiptDto> {
+  return runWithRetry(() =>
+    fetchPlatformAPI<ChainMutationReceiptDto>(`${CHAIN_API_PREFIX}/issuers`, {
       method: 'POST',
-      headers: authHeaders(),
       body: JSON.stringify(input),
     }),
   );
-  return receipt;
 }
 
 export async function updateRealIssuer(
   issuerId: string,
   input: { name?: string; metadata?: Record<string, unknown> },
-): Promise<ApiMutationReceipt> {
+): Promise<ChainMutationReceiptDto> {
   return runWithRetry(() =>
-    fetchBlockchainAPI<ApiMutationReceipt>(`/issuers/${encodeURIComponent(issuerId)}`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify(input),
-    }),
+    fetchPlatformAPI<ChainMutationReceiptDto>(
+      `${CHAIN_API_PREFIX}/issuers/${encodeURIComponent(issuerId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+    ),
   );
 }
 
 /**
- * Admin issuer lifecycle backed by the real chain: there is NO dedicated
- * issuer suspend/activate endpoint or transaction type in the SecureX backend.
- * ISSUER_UPDATE only carries name/metadata and issuer status is governed by the
- * chain, so a browser cannot mutate an issuer's on-chain status. We surface
- * this honestly as an ApiError instead of calling a non-existent endpoint or
- * fabricating success. The page reflects the authoritative state read
- * (GET /state/issuers) which already includes the real issuer.status.
+ * Admin issuer lifecycle: the chain has no issuer suspend/activate operation.
+ * An issuer's ACTIVE/SUSPENDED/REVOKED status is governed by the ledger, so a
+ * browser cannot mutate it. We surface that honestly as an ApiError instead of
+ * calling a non-existent endpoint or fabricating success. The page reflects the
+ * authoritative status read (GET /blockchain/issuers).
  */
 export async function suspendRealIssuer(
   _issuerId: string,
   _reason?: string,
-): Promise<ApiMutationReceipt> {
+): Promise<ChainMutationReceiptDto> {
   throw new ApiError(
-    'The SecureX backend does not expose an issuer suspension endpoint; issuer status is read-only from the admin UI.',
+    'Issuer status is governed by the SecureX ledger; the Platform API exposes no issuer suspension operation, so issuer status is read-only from the admin UI.',
     400,
   );
 }
@@ -266,29 +205,23 @@ export async function suspendRealIssuer(
 export async function activateRealIssuer(
   _issuerId: string,
   _reason?: string,
-): Promise<ApiMutationReceipt> {
+): Promise<ChainMutationReceiptDto> {
   throw new ApiError(
-    'The SecureX backend does not expose an issuer activation endpoint; issuer status is read-only from the admin UI.',
+    'Issuer status is governed by the SecureX ledger; the Platform API exposes no issuer activation operation, so issuer status is read-only from the admin UI.',
     400,
   );
 }
 
-/**
- * The backend exposes issuer state via ISSUER_REGISTER / ISSUER_UPDATE
- * transactions only. An issuer's ACTIVE/SUSPENDED/REVOKED lifecycle is governed
- * by the chain; there is no dedicated "suspend issuer" lifecycle endpoint. We
- * therefore map Admin suspension onto the real state read (which reflects the
- * issuer's actual on-chain status) for display, and surface the backend state
- * honestly rather than inventing a mutation that does not exist.
- */
 export async function getRealIssuer(id: string): Promise<Issuer> {
   const issuer = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiIssuer>(`/state/issuers/${encodeURIComponent(id)}`),
+    fetchPlatformAPI<ChainIssuerDto>(
+      `${CHAIN_API_PREFIX}/issuers/${encodeURIComponent(id)}`,
+    ),
   );
   let count = 0;
   try {
-    const history = await fetchBlockchainAPI<ApiIssuerHistory>(
-      `/state/issuers/${encodeURIComponent(id)}/history`,
+    const history = await fetchPlatformAPI<ChainIssuerHistoryDto>(
+      `${CHAIN_API_PREFIX}/issuers/${encodeURIComponent(id)}/history`,
     );
     count = history.credentials.length;
   } catch {
@@ -297,364 +230,263 @@ export async function getRealIssuer(id: string): Promise<Issuer> {
   return mapApiIssuer(issuer, count);
 }
 
-export async function getRealIssuerHistory(id: string): Promise<ApiIssuerHistory> {
+export async function getRealIssuerHistory(id: string): Promise<ChainIssuerHistoryDto> {
   return runWithRetry(() =>
-    fetchBlockchainAPI<ApiIssuerHistory>(
-      `/state/issuers/${encodeURIComponent(id)}/history`,
+    fetchPlatformAPI<ChainIssuerHistoryDto>(
+      `${CHAIN_API_PREFIX}/issuers/${encodeURIComponent(id)}/history`,
     ),
   );
 }
 
 // ---------------------------------------------------------------------------
-// Admin / Holder: Credential state (REAL backend)
+// Credential records (REAL mode)
 // ---------------------------------------------------------------------------
+//
+// Credential DISPLAY data (title, description, holder, issuer and institution
+// names, stored references) is read from the Platform API's own credential
+// record, which is the authority for it. The chain proxy is used for the
+// on-chain lifecycle history, because that is the only place it exists.
+//
+// Access control is entirely server-side: GET /credentials is scoped to the
+// caller's own holder/institution ownership and GET /credentials/:id reports an
+// out-of-scope credential as not found. There is deliberately no browser-side
+// ownership registry — the backend is the single authority for who may see what.
 
-/**
- * The SecureX ledger stores credential identifiers (public credentialId) but
- * carries no holder binding and exposes no "list all credentials" endpoint
- * (per-issuer history summaries omit the credentialId). To enumerate the
- * on-chain credential set for the holder wallet in REAL mode we probe the
- * public credential IDs the demo chain seeded (see backend scripts/demo-data.ts)
- * and keep only those the backend actually confirms as issued. Which of these a
- * given holder may see is decided by the OFF-CHAIN ownership registry.
- */
 export { REAL_DEMO_CREDENTIAL_IDS };
 export { REAL_DEMO_PUBLIC_CREDENTIAL_IDS };
 
-/** Fetch the on-chain credential set confirmed by the real backend. */
 export async function getRealCredentials(): Promise<Credential[]> {
   if (getDataSourceMode() === 'DEMO') {
     const { getCredentials } = await import('@/services/api/credentialService');
     return getCredentials();
   }
-  const issuers = await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/state/issuers'));
-  const issuerName = new Map(issuers.map((i) => [i.issuerId, i.name]));
-
-  const out: Credential[] = [];
-  for (const id of REAL_DEMO_CREDENTIAL_IDS) {
-    try {
-      const cred = await fetchBlockchainAPI<ApiCredential>(
-        `/state/credentials/${encodeURIComponent(id)}`,
-      );
-      out.push(mapApiCredential(cred, issuerName.get(cred.issuerId)));
-    } catch {
-      // credential not issued on this chain; skip it
-    }
-  }
-  return out;
+  return runWithRetry(() => fetchPlatformAPI<Credential[]>('/credentials'));
 }
 
 /**
- * The holder "My Credentials" view. In DEMO mode it preserves the Phase 1 mock
- * wallet (per-holder mock credentials). In REAL mode it shows only the on-chain
- * credentials the given holder actually owns (off-chain ownership registry),
- * so a holder never sees another holder's credentials.
+ * The holder "My Credentials" view. `holderId` only NARROWS the result; the
+ * Platform API refuses to widen it, so a holder cannot read another holder's
+ * wallet by passing a different id.
  */
 export async function getHolderCredentialsView(holderId: string): Promise<Credential[]> {
   if (getDataSourceMode() === 'DEMO') {
     const { getHolderCredentials } = await import('@/services/api/credentialService');
     return getHolderCredentials(holderId);
   }
-  const ownedIds = getCredentialIdsForHolder(holderId);
-  if (ownedIds.length === 0) return [];
-
-  const issuerName = new Map(
-    (await runWithRetry(() => fetchBlockchainAPI<ApiIssuer[]>('/state/issuers')))
-      .map((i) => [i.issuerId, i.name]),
+  return runWithRetry(() =>
+    fetchPlatformAPI<Credential[]>(`/credentials?holderId=${encodeURIComponent(holderId)}`),
   );
-
-  const out: Credential[] = [];
-  for (const id of ownedIds) {
-    try {
-      const cred = await fetchBlockchainAPI<ApiCredential>(
-        `/state/credentials/${encodeURIComponent(id)}`,
-      );
-      out.push(mapApiCredential(cred, issuerName.get(cred.issuerId)));
-    } catch {
-      // owned id not (yet) on-chain; skip it
-    }
-  }
-  return out;
 }
 
-/**
- * Fetch a single credential for the given holder. Enforces holder access
- * control: a holder who does not own the credential receives an authorization
- * rejection (they cannot view another holder's credential).
- */
-export async function getRealCredential(
-  id: string,
-  holderId?: string,
-): Promise<Credential> {
+export async function getRealCredential(id: string): Promise<Credential> {
   if (getDataSourceMode() === 'DEMO') {
     const { getCredentialById } = await import('@/services/api/credentialService');
     return getCredentialById(id);
   }
-  if (holderId && !holderOwnsCredential(holderId, id)) {
-    throw new ApiError(
-      'You are not authorized to view this credential. It is not in your wallet.',
-      403,
-    );
-  }
-  const cred = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiCredential>(`/state/credentials/${encodeURIComponent(id)}`),
+  return runWithRetry(() =>
+    fetchPlatformAPI<Credential>(`/credentials/${encodeURIComponent(id)}`),
   );
-  let issuerName: string | undefined;
-  try {
-    const issuer = await fetchBlockchainAPI<ApiIssuer>(
-      `/state/issuers/${encodeURIComponent(cred.issuerId)}`,
-    );
-    issuerName = issuer.name;
-  } catch {
-    issuerName = undefined;
-  }
-  return mapApiCredential(cred, issuerName);
 }
 
+/** The on-chain lifecycle of a credential, as projected by the Platform API. */
 export async function getRealCredentialHistory(
   id: string,
-): Promise<ApiCredentialHistoryEntry[]> {
+): Promise<ChainCredentialHistoryDto> {
   if (getDataSourceMode() === 'DEMO') return [];
   return runWithRetry(() =>
-    fetchBlockchainAPI<ApiCredentialHistoryEntry[]>(
-      `/state/credentials/${encodeURIComponent(id)}/history`,
+    fetchPlatformAPI<ChainCredentialHistoryDto>(
+      `${CHAIN_API_PREFIX}/credentials/${encodeURIComponent(id)}/history`,
     ),
   );
 }
 
 // ---------------------------------------------------------------------------
-// Credential lifecycle mutations (real transaction pipeline)
+// Credential lifecycle transitions (relayed to the chain by the Platform API)
 // ---------------------------------------------------------------------------
 //
-// The SecureX blockchain V3 API has NO dedicated credential lifecycle endpoints
-// (POST /credentials/:id/suspend|reinstate|revoke|reissue do not exist). Every
-// lifecycle transition is submitted as a signed transaction via POST
-// /transactions following the existing ApiTransaction contract (see
-// src/features/explorer-simulation/types/backend.ts and the backend's
-// tx-validator). The chain requires a valid Ed25519 signature from a registered
-// issuer or validator key, which a browser caller does not hold, so an unsigned
-// submission is rejected by the backend (INVALID_SENDER / MISSING_SIGNATURE).
-// We build the contract-shaped transaction and surface that authoritative
-// rejection honestly (throw on non-2xx / submitted:false) rather than
-// fabricating success. In a secure deployment lifecycle transitions must be
-// signed and submitted by an issuer-side service that holds the signing key.
-
-const TRANSACTION_PROTOCOL_VERSION = '2.0';
-const TRANSACTION_VERSION = 2;
-
-function createTransactionId(): string {
-  if (
-    typeof globalThis.crypto !== 'undefined' &&
-    typeof globalThis.crypto.randomUUID === 'function'
-  ) {
-    return globalThis.crypto.randomUUID();
-  }
-  return `tx-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
+// The browser never builds or signs a chain transaction. It asks the Platform
+// API for a lifecycle transition (POST /blockchain/credentials/:id/transitions);
+// the Platform API authorizes the caller from the credential's own database
+// ownership, builds the contract-shaped transaction server-side, and relays it
+// with the server-held chain credential.
+//
+// The chain requires a signature from a registered issuer or validator key,
+// which the Platform API does not hold, so an unsigned submission is expected
+// to be REJECTED upstream. That rejection is surfaced verbatim as an error —
+// never reported as a completed lifecycle change.
 
 export interface LifecycleInput {
   reason?: string;
 }
 
-interface TransactionSubmitResponse {
-  submitted: boolean;
-  id: string;
-  status: string;
-}
+export type LifecycleAction = 'suspend' | 'reinstate' | 'revoke';
 
-const lifecycleTypes: Record<'suspend' | 'reinstate' | 'revoke', ApiTransactionType> = {
-  suspend: 'CREDENTIAL_SUSPEND',
-  reinstate: 'CREDENTIAL_REINSTATE',
-  revoke: 'CREDENTIAL_REVOKE',
-};
-
-/**
- * Build a transaction body per the existing ApiTransaction contract and submit
- * it to POST /transactions. The sender/signature fields cannot be produced by a
- * browser caller (no signing key is held client-side); the backend remains the
- * authority and its rejection is surfaced as an ApiError. The success envelope
- * only carries { submitted, id, status }, so the receipt is completed from the
- * transaction we constructed.
- */
-function submitLifecycleTransaction(
-  type: ApiTransactionType,
-  payload: Record<string, unknown>,
-): Promise<ApiMutationReceipt> {
-  const tx: ApiTransaction = {
-    protocolVersion: TRANSACTION_PROTOCOL_VERSION,
-    transactionVersion: TRANSACTION_VERSION,
-    id: createTransactionId(),
-    type,
-    timestamp: new Date().toISOString(),
-    sender: '',
-    nonce: 0,
-    payload,
-    signature: '',
-  };
-
-  return runWithRetry(() =>
-    fetchBlockchainAPI<TransactionSubmitResponse>('/transactions', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify(tx),
-    }),
-  ).then((data): ApiMutationReceipt => {
-    if (!data.submitted) {
-      throw new ApiError('The lifecycle transition was rejected by the backend.', 400);
-    }
-    return {
-      submitted: true,
-      id: data.id,
-      type: tx.type,
-      sender: tx.sender,
-      nonce: tx.nonce,
-      status: 'PENDING',
-    };
-  });
-}
-
-async function lifecycleMutation(
+async function lifecycleTransition(
   id: string,
-  action: 'suspend' | 'reinstate' | 'revoke',
+  action: LifecycleAction,
   input: LifecycleInput,
-): Promise<ApiMutationReceipt> {
-  const payload: Record<string, unknown> = { credentialId: id };
-  if (input.reason) {
-    payload.reason = input.reason;
+): Promise<ChainMutationReceiptDto> {
+  const receipt = await runWithRetry(() =>
+    fetchPlatformAPI<ChainMutationReceiptDto>(
+      `${CHAIN_API_PREFIX}/credentials/${encodeURIComponent(id)}/transitions`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input.reason ? { action, reason: input.reason } : { action }),
+      },
+    ),
+  );
+  if (!receipt.submitted) {
+    throw new ApiError(
+      'The blockchain service did not accept the lifecycle transition.',
+      502,
+    );
   }
-  return submitLifecycleTransaction(lifecycleTypes[action], payload);
+  return receipt;
+}
+
+function demoLifecycleReceipt(id: string): ChainMutationReceiptDto {
+  return { submitted: true, id, status: 'PENDING' };
 }
 
 export async function suspendRealCredential(
   id: string,
   reason?: string,
-): Promise<ApiMutationReceipt> {
+): Promise<ChainMutationReceiptDto> {
   if (getDataSourceMode() === 'DEMO') {
     await mockDelay();
-    return { submitted: true, id, type: 'CREDENTIAL_SUSPEND', sender: 'demo', nonce: 1, status: 'PENDING' };
+    return demoLifecycleReceipt(id);
   }
-  return lifecycleMutation(id, 'suspend', { reason });
+  return lifecycleTransition(id, 'suspend', { reason });
 }
 
 export async function reinstateRealCredential(
   id: string,
   reason?: string,
-): Promise<ApiMutationReceipt> {
+): Promise<ChainMutationReceiptDto> {
   if (getDataSourceMode() === 'DEMO') {
     await mockDelay();
-    return { submitted: true, id, type: 'CREDENTIAL_REINSTATE', sender: 'demo', nonce: 1, status: 'PENDING' };
+    return demoLifecycleReceipt(id);
   }
-  return lifecycleMutation(id, 'reinstate', { reason });
+  return lifecycleTransition(id, 'reinstate', { reason });
 }
 
 export async function revokeRealCredential(
   id: string,
   reason?: string,
-): Promise<ApiMutationReceipt> {
+): Promise<ChainMutationReceiptDto> {
   if (getDataSourceMode() === 'DEMO') {
     const { revokeCredential } = await import('@/services/api/credentialService');
     await revokeCredential(id);
-    return { submitted: true, id, type: 'CREDENTIAL_REVOKE', sender: 'demo', nonce: 1, status: 'PENDING' };
+    return demoLifecycleReceipt(id);
   }
-  return lifecycleMutation(id, 'revoke', { reason });
+  return lifecycleTransition(id, 'revoke', { reason });
 }
 
+/**
+ * Reissue is NOT a supported lifecycle transition. The Platform API relays only
+ * suspend / reinstate / revoke, so there is no reissue operation to call. We
+ * report that honestly rather than submitting a differently-shaped transaction
+ * and reporting a success the chain never acknowledged.
+ */
 export async function reissueRealCredential(
-  id: string,
-  input: {
+  _id: string,
+  _input: {
     newCredentialId: string;
     newCredentialHash: string;
     reason?: string;
   },
-): Promise<ApiMutationReceipt> {
+): Promise<ChainMutationReceiptDto> {
   if (getDataSourceMode() === 'DEMO') {
     await mockDelay();
-    return { submitted: true, id, type: 'CREDENTIAL_REISSUE', sender: 'demo', nonce: 1, status: 'PENDING' };
+    return { submitted: true, id: _id, status: 'PENDING' };
   }
-  const payload: Record<string, unknown> = {
-    credentialId: id,
-    newCredentialId: input.newCredentialId,
-    newCredentialHash: input.newCredentialHash,
-  };
-  if (input.reason) {
-    payload.reason = input.reason;
-  }
-  return submitLifecycleTransaction('CREDENTIAL_REISSUE', payload);
+  throw new ApiError(
+    'Reissuing a credential is not a supported lifecycle transition. The SecureX Platform API relays suspend, reinstate and revoke only.',
+    400,
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Verification (real backend verification service)
+// Verification
 // ---------------------------------------------------------------------------
+//
+// Verification is answered by the Platform API's public verification surface
+// (GET /verifications/:id), which is the single canonical verifier. It reports
+// what was ACTUALLY checked and marks every capability SecureX has not
+// implemented as unavailable, so the view below carries no field that would
+// imply a blockchain proof or a signature check that never happened.
+
+export type VerificationStatus =
+  | 'VALID'
+  | 'REVOKED'
+  | 'SUSPENDED'
+  | 'EXPIRED'
+  | 'TAMPERED'
+  | 'SUSPICIOUS'
+  | 'INVALID'
+  | 'NOT_FOUND';
+
+export type VerificationCheckStatus = 'VERIFIED' | 'UNVERIFIED' | 'NOT_FOUND';
+
+/**
+ * One capability report.
+ *
+ *   verified   — the check genuinely ran and passed
+ *   available  — a genuine implementation of the check exists at all
+ */
+export interface VerificationCheckView {
+  verified: boolean;
+  available: boolean;
+  status: VerificationCheckStatus;
+  /** Plain-language statement of exactly what was, and was not, checked. */
+  detail: string;
+}
+
+export type DocumentIntegrityStatus = 'EXACT' | 'TAMPERED' | 'UNVERIFIABLE';
+
+/**
+ * A comparison of a caller-supplied document hash against the hash reference
+ * stored on the SecureX Platform record. Explicitly NOT a blockchain anchor
+ * check and NOT a signature check — the stored reference is never returned.
+ */
+export interface DocumentIntegrityView {
+  credentialId: string;
+  suppliedHash: string;
+  hashMatch: boolean;
+  status: DocumentIntegrityStatus;
+  scope: 'PLATFORM_RECORD';
+  detail: string;
+  verifiedAt: string;
+}
 
 export interface VerificationView {
-  status: ApiVerificationStatus;
   credentialId: string;
-  credentialHash?: string;
-  issuer?: { issuerId: string; name: string; publicKey: string; status: string };
-  transaction?: { id: string; type: string; blockHeight: number; blockHash: string };
-  block?: { height: number; hash: string; timestamp: string; proposer: string };
-  issuerSignatureValid?: boolean;
-  keyStatus?: string;
-  protocolCompatible?: boolean;
-  verifiedAt?: string;
-  securityChecks?: Record<string, boolean>;
-  documentHashCheck?: ApiVerifyResult['documentHashCheck'];
-  message?: string;
-}
-
-function toVerificationView(result: ApiVerifyResult): VerificationView {
-  return {
-    status: result.status,
-    credentialId: result.credentialId,
-    credentialHash: result.credentialHash,
-    issuer: result.issuer,
-    transaction: result.transaction,
-    block: result.block,
-    issuerSignatureValid: result.issuerSignatureValid,
-    keyStatus: result.keyStatus,
-    protocolCompatible: result.protocolCompatible,
-    verifiedAt: result.verifiedAt,
-    securityChecks: result.securityChecks,
-    documentHashCheck: result.documentHashCheck,
-    message:
-      result.status === 'NOT_FOUND'
-        ? 'Credential not found on the SecureX ledger.'
-        : result.errorMessage,
+  /** Effective status at verification time (EXPIRED derived from expiresAt). */
+  status: VerificationStatus;
+  /** The status literally recorded on the credential. */
+  storedStatus: VerificationStatus;
+  issuerName: string | null;
+  issuedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  verifiedAt: string;
+  checks: {
+    credentialRecord: VerificationCheckView;
+    blockchainProof: VerificationCheckView;
+    signature: VerificationCheckView;
   };
+  documentIntegrity?: DocumentIntegrityView;
+  message: string;
 }
 
 export async function verifyRealCredential(
   credentialId: string,
   documentHash?: string,
 ): Promise<VerificationView> {
-  if (getDataSourceMode() === 'DEMO') {
-    const { verifyCredential } = await import('@/services/api/verificationService');
-    const res = await verifyCredential(credentialId);
-    return {
-      status: res.status as ApiVerificationStatus,
-      credentialId: res.credentialId,
-      credentialHash: undefined,
-      issuer: res.issuer
-        ? {
-            issuerId: res.issuer.name,
-            name: res.issuer.name,
-            publicKey: res.issuer.publicKey ?? '',
-            status: res.issuer.verified ? 'ACTIVE' : 'UNKNOWN',
-          }
-        : undefined,
-      verifiedAt: res.verifiedAt,
-      securityChecks: {
-        credentialExists: res.status !== 'NOT_FOUND',
-        signatureValid: res.signatureVerification.valid,
-      },
-    };
-  }
-  const url = `/verify/${encodeURIComponent(credentialId)}`;
-  const opts: RequestInit = documentHash
-    ? { method: 'POST', headers: authHeaders(), body: JSON.stringify({ credentialId, documentHash }) }
-    : {};
-  const result = await runWithRetry(() => fetchBlockchainAPI<ApiVerifyResult>(url, opts));
-  return toVerificationView(result);
+  const { verifyPublicCredential } = await import(
+    '@/features/public-verification/services/publicVerificationService'
+  );
+  return verifyPublicCredential(credentialId, documentHash);
 }
 
 /** DEMO fixed issuedAt (stable across renders so the demo QR is reproducible). */
@@ -663,7 +495,15 @@ const DEMO_QR_ISSUED_AT = 1780000000000;
 const DEMO_QR_SIGNATURE =
   'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
 
-export async function getRealQrReference(credentialId: string): Promise<ApiQrReference> {
+export interface QrReferenceView {
+  credentialId: string;
+  version: string;
+  exists: boolean;
+  verificationUrl: string;
+  qrContent: string;
+}
+
+export async function getRealQrReference(credentialId: string): Promise<QrReferenceView> {
   if (getDataSourceMode() === 'DEMO') {
     const publicId = resolveDemoPublicId(credentialId) ?? credentialId;
     const token = demoQrTokenForPublicId(publicId) ?? publicId;
@@ -672,14 +512,15 @@ export async function getRealQrReference(credentialId: string): Promise<ApiQrRef
     return {
       credentialId: publicId,
       version: '1',
-      verificationUrl: `${window.location.origin}/verify/${encodeURIComponent(publicId)}`,
-      payload: { credentialId: publicId, version: '1', protocol: SECUREX_QR_PREFIX },
       exists: true,
+      verificationUrl: `${window.location.origin}/verify/${encodeURIComponent(publicId)}`,
       qrContent,
     };
   }
   return runWithRetry(() =>
-    fetchBlockchainAPI<ApiQrReference>(`/qr/${encodeURIComponent(credentialId)}`),
+    fetchPlatformAPI<ChainQrReferenceDto>(
+      `${CHAIN_API_PREFIX}/qr/${encodeURIComponent(credentialId)}`,
+    ),
   );
 }
 
@@ -690,27 +531,33 @@ export interface ApiQrVerify {
 }
 
 /**
- * REAL mode: forward an opaque SecureX QR payload to the backend for
- * authentication + resolution. The backend verifies the server Ed25519
- * signature, enforces the bounded lifetime, and resolves the opaque token to a
- * PUBLIC credential ID. On success returns the public ID (the backend response
- * never contains internal credential IDs).
+ * REAL mode: forward an opaque SecureX QR payload to the Platform API, which
+ * relays it to the chain. The CHAIN is the component that authenticates the
+ * payload signature and enforces its lifetime — SecureX does not verify it
+ * itself and never claims to. `resolved: false` is a normal negative answer,
+ * not a service error, so it is returned rather than thrown.
  */
 export async function verifyQrPayloadViaApi(payload: string): Promise<ApiQrVerify> {
   try {
     const result = await runWithRetry(() =>
-      fetchBlockchainAPI<ApiVerifyResult>('/verify/qr', {
+      fetchPlatformAPI<ChainQrVerifyDto>(`${CHAIN_API_PREFIX}/qr/verify`, {
         method: 'POST',
-        headers: authHeaders(),
         body: JSON.stringify({ payload }),
       }),
     );
-    if (result.status === 'NOT_FOUND') {
-      return { ok: false, reason: 'Credential not found on the SecureX ledger.' };
+    if (!result.resolved || !result.credentialId) {
+      return {
+        ok: false,
+        reason:
+          result.reason ?? 'This SecureX QR reference could not be authenticated.',
+      };
     }
     return { ok: true, publicCredentialId: result.credentialId };
   } catch (e) {
-    const message = e instanceof ApiError ? e.message : 'Could not authenticate this SecureX QR reference.';
+    const message =
+      e instanceof ApiError
+        ? e.message
+        : 'Could not authenticate this SecureX QR reference.';
     return { ok: false, reason: message };
   }
 }
@@ -741,15 +588,14 @@ export async function resolveSecureXQrPayload(payload: string): Promise<ApiQrVer
  * this is a fixed demo fixture mapping only (no ID derivation).
  */
 function resolveDemoPublicId(internalId: string): string | undefined {
-  const idx = REAL_DEMO_CREDENTIAL_IDS.indexOf(internalId);
-  return idx >= 0 ? REAL_DEMO_PUBLIC_CREDENTIAL_IDS[idx] : undefined;
+  return demoPublicIdForInternalId(internalId);
 }
 
 // ---------------------------------------------------------------------------
 // Audit / evidence
 // ---------------------------------------------------------------------------
 
-function toAuditView(event: ApiAuditEvent): AuditEvent {
+function toAuditView(event: ChainAuditEventDto): AuditEvent {
   return {
     id: event.id,
     action: event.type,
@@ -764,9 +610,9 @@ function toAuditView(event: ApiAuditEvent): AuditEvent {
 }
 
 /**
- * Derive a display role for the audit actor. The backend authenticator does not
- * expose a frontend role in dev; we map the actor label to the closest shared
- * role for rendering only (the backend remains the authority on writes).
+ * Derive a display role for the audit actor. The chain reports the acting
+ * identity as a label; we map it to the closest shared role for rendering only
+ * (the Platform API remains the authority on who may perform a write).
  */
 function deriveActorRole(actor?: string): UserRole {
   const a = actor?.toLowerCase() ?? '';
@@ -786,18 +632,19 @@ export async function getRealAuditEvents(
     return getAuditEvents();
   }
   const events = await runWithRetry(() =>
-    fetchBlockchainAPI<ApiAuditEvent[]>(
-      `/audit/events?limit=${limit}&offset=${offset}`,
-      { headers: authHeaders() },
+    fetchPlatformAPI<ChainAuditEventDto[]>(
+      `${CHAIN_API_PREFIX}/audit/events?limit=${limit}&offset=${offset}`,
     ),
   );
   return events.map(toAuditView);
 }
 
-export async function getRealStateSummary(): Promise<ApiStateSummary | null> {
+export async function getRealStateSummary(): Promise<ChainStateDto | null> {
   if (getDataSourceMode() === 'DEMO') return null;
   try {
-    return await runWithRetry(() => fetchBlockchainAPI<ApiStateSummary>('/state'));
+    return await runWithRetry(() =>
+      fetchPlatformAPI<ChainStateDto>(`${CHAIN_API_PREFIX}/state`),
+    );
   } catch {
     return null;
   }

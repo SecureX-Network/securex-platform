@@ -8,7 +8,6 @@ import {
   FileText,
   GraduationCap,
   Landmark,
-  ShieldCheck,
   Stamp,
 } from "lucide-react";
 import type { CredentialStatus } from "@/types";
@@ -21,7 +20,6 @@ export interface CredentialCardProps {
   title: string;
   credentialType: string;
   issuer?: string;
-  issuerVerified?: boolean;
   status?: CredentialStatus;
   issuedAt?: string;
   expiresAt?: string;
@@ -65,7 +63,6 @@ export function CredentialCard({
   title,
   credentialType,
   issuer,
-  issuerVerified = false,
   status = "VALID",
   issuedAt,
   expiresAt,
@@ -123,12 +120,6 @@ export function CredentialCard({
                       •
                     </span>
                     <span className="inline-flex min-w-0 items-center gap-1 truncate">
-                      {issuerVerified && (
-                        <ShieldCheck
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 shrink-0 text-trust-500"
-                        />
-                      )}
                       <span className="truncate">{issuer}</span>
                     </span>
                   </>

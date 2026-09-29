@@ -13,13 +13,16 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:server": "tsx --test --test-force-exit --test-reporter=spec server/test/*.test.ts",
+    "test:server": "tsx --test --test-concurrency=1 --test-force-exit --test-reporter=spec server/test/*.test.ts",
+    "test:e2e": "playwright test",
+    "demo:record": "node scripts/demo-record.mjs",
     "test:all": "npm run lint && npm run typecheck && npm test && npm run test:server && npm run build && npm run build:server",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 5",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
     "server": "tsx server/index.ts",
     "server:watch": "tsx watch server/index.ts",
-    "import:sqlite": "tsx server/scripts/import-sqlite.ts"
+    "import:sqlite": "tsx server/scripts/import-sqlite.ts",
+    "bootstrap:admin": "tsx server/scripts/bootstrap-admin.ts"
   },
   "dependencies": {
     "@types/node": "^26.5.0",

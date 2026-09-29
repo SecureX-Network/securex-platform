@@ -30,21 +30,33 @@ function GroupSection({
       <nav aria-label={section.label} className="space-y-1">
         {section.items.map((item) => {
           const Icon = item.icon;
-          const link = (
-            <NavLink
+          const className = ({ isActive }: { isActive: boolean }) =>
+            `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              collapsed ? 'justify-center px-2' : ''
+            } ${
+              isActive
+                ? 'bg-securex-600 text-white'
+                : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+            }`;
+
+          // An item that leaves this app (the Control Center) is a real anchor,
+          // not a router link. NavLink would try to resolve it as an in-app
+          // path and fail.
+          const link = item.external ? (
+            <a
               key={item.path}
-              to={item.path}
-              end={item.end}
-              className={({ isActive }) =>
-                `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                  collapsed ? 'justify-center px-2' : ''
-                } ${
-                  isActive
-                    ? 'bg-securex-600 text-white'
-                    : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-                }`
-              }
+              href={item.path}
+              target="_blank"
+              rel="noreferrer"
+              className={className({ isActive: false })}
             >
+              <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+              {!collapsed && (
+                <span className="flex-1 truncate">{item.label}</span>
+              )}
+            </a>
+          ) : (
+            <NavLink key={item.path} to={item.path} end={item.end} className={className}>
               <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
               {!collapsed && (
                 <>

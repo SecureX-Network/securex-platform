@@ -158,7 +158,7 @@ export default function AdminSecurityAlertsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search alerts\u2026"
+          placeholder="Search alerts…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}

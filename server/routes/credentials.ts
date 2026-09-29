@@ -1,15 +1,28 @@
 import { Router, Request, Response } from 'express';
 import { all, get, run, transaction } from '../db/database.js';
 import { mapCredentialRow, type CredentialRow } from '../db/mappers.js';
-import { requireAuth, requireRole, type AuthenticatedRequest, type UserRole } from '../middleware/auth.js';
+import { requireAuth, requireRole, type AuthenticatedRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { auditFor } from '../services/audit.js';
+import {
+  CREDENTIAL_WRITER_ROLES,
+  authorizeCredentialRead,
+  authorizeCredentialWrite,
+  credentialListScope,
+  resolveIssuanceInstitution,
+  resolveIssuanceIssuer,
+} from '../services/credentialAuthorization.js';
 import { created, fail, ok, param } from '../utils/http.js';
 import { entityId, makeHex, newPublicCredentialId, newTxRef, nowIso } from '../utils/ids.js';
 
 export const credentialsRouter = Router();
 
-const CREDENTIAL_WRITER_ROLES: UserRole[] = ['INSTITUTION', 'ISSUER', 'ADMIN', 'SECURITY_ADMIN', 'NETWORK_ADMIN', 'AUDITOR'];
+/**
+ * Roles permitted to write credentials. AUDITOR is deliberately excluded — it is
+ * a read-only role. Object-level (tenant) enforcement is applied in the handler
+ * via services/credentialAuthorization.ts; this list is only the coarse gate.
+ */
+const CREDENTIAL_WRITE_ROLES = CREDENTIAL_WRITER_ROLES;
 
 const credentialSelect = `
   SELECT c.id, c.credential_id, c.type, c.title, c.description, c.holder_name, c.holder_id,
@@ -91,13 +104,40 @@ credentialsRouter.get('/', requireAuth, (req: Request, res: Response) => {
 });
 
 async function listCredentialsHandler(req: Request, res: Response): Promise<void> {
-  const holderId = typeof req.query.holderId === 'string' ? req.query.holderId : undefined;
-  const rows = holderId
-    ? await all<CredentialRow>(
-        `${credentialSelect} WHERE c.holder_id = ? ORDER BY c.issued_at DESC`,
-        holderId,
-      )
-    : await all<CredentialRow>(`${credentialSelect} ORDER BY c.issued_at DESC`);
+  const auth = req as AuthenticatedRequest;
+
+  // The list is a BULK read, so it is scoped by the same tenant boundary that
+  // authorizeCredentialRead enforces per record. A `?holderId=` query narrows
+  // the result but never widens it: a holder may only narrow to themselves, and
+  // a tenant role may only narrow inside its own institution.
+  const scope = credentialListScope(auth.user);
+  const requestedHolderId = typeof req.query.holderId === 'string' ? req.query.holderId : undefined;
+
+  let where = '';
+  const params: string[] = [];
+
+  if (requestedHolderId !== undefined) {
+    if (scope.kind === 'holder' && scope.holderId !== requestedHolderId) {
+      ok(res, []);
+      return;
+    }
+    where = 'WHERE c.holder_id = ?';
+    params.push(requestedHolderId);
+  } else if (scope.kind === 'holder') {
+    where = 'WHERE c.holder_id = ?';
+    params.push(scope.holderId);
+  } else if (scope.kind === 'institution') {
+    where = 'WHERE c.institution_id = ?';
+    params.push(scope.institutionId);
+  } else if (scope.kind === 'none') {
+    ok(res, []);
+    return;
+  }
+
+  const rows = await all<CredentialRow>(
+    `${credentialSelect} ${where} ORDER BY c.issued_at DESC`,
+    ...params,
+  );
   ok(res, rows.map(mapCredentialRow));
 }
 
@@ -106,8 +146,21 @@ credentialsRouter.get('/:id', requireAuth, (req: Request, res: Response) => {
 });
 
 async function getCredentialHandler(req: Request, res: Response): Promise<void> {
+  const auth = req as AuthenticatedRequest;
   const row = await findByPublicOrInternal(param(req, 'id'));
   if (!row) {
+    fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
+    return;
+  }
+  // Object-level read authorization against the credential's real ownership.
+  // An out-of-scope credential is reported identically to a missing one so the
+  // endpoint cannot be used to probe for the existence of other tenants' records.
+  const decision = authorizeCredentialRead(auth.user, {
+    institution_id: row.institution_id,
+    issuer_id: row.issuer_id,
+    holder_id: row.holder_id,
+  });
+  if (!decision.allowed) {
     fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
     return;
   }
@@ -117,7 +170,7 @@ async function getCredentialHandler(req: Request, res: Response): Promise<void> 
 credentialsRouter.post(
   '/',
   requireAuth,
-  requireRole(...CREDENTIAL_WRITER_ROLES),
+  requireRole(...CREDENTIAL_WRITE_ROLES),
   validate([
     { name: 'type', required: true, type: 'string' },
     { name: 'title', required: true, type: 'string' },
@@ -156,15 +209,45 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
     metadata?: Record<string, string>;
   };
 
-  const issuer = await get<{ id: string }>('SELECT id FROM issuers WHERE id = ?', body.issuerId);
-  const institution = await get<{ id: string }>('SELECT id FROM institutions WHERE id = ?', body.institutionId);
-  if (!issuer) {
-    fail(res, 400, 'UNKNOWN_ISSUER', 'Issuer not found.');
+  // ── Tenant boundary ────────────────────────────────────────────────────
+  //   authenticated user -> authorized institution -> authorized issuer -> credential
+  //
+  // `body.institutionId` / `body.issuerName` / `body.institutionName` are NOT an
+  // authorization decision. The institution is resolved from the authenticated
+  // user's organization context (platform admins may select a tenant explicitly),
+  // the issuer must belong to that institution, and both display names are read
+  // from the database rather than trusted from the request.
+  const institutionResult = await resolveIssuanceInstitution(
+    auth.user,
+    body.institutionId,
+  );
+  if (!institutionResult.ok) {
+    fail(res, institutionResult.status, institutionResult.code, institutionResult.message);
     return;
   }
-  if (!institution) {
-    fail(res, 400, 'UNKNOWN_INSTITUTION', 'Institution not found.');
+  const { institution } = institutionResult;
+
+  const issuerResult = await resolveIssuanceIssuer(
+    auth.user,
+    body.issuerId,
+    institution.institutionId,
+  );
+  if (!issuerResult.ok) {
+    fail(res, issuerResult.status, issuerResult.code, issuerResult.message);
     return;
+  }
+  const { issuer } = issuerResult;
+
+  // An expiry date must be a real, parseable, future-dated timestamp. We never
+  // fabricate or default an expiry date: an absent expiresAt means "no expiry".
+  let expiresAt: string | null = null;
+  if (body.expiresAt) {
+    const parsed = Date.parse(body.expiresAt);
+    if (Number.isNaN(parsed)) {
+      fail(res, 400, 'INVALID_EXPIRY', 'expiresAt must be a valid ISO-8601 timestamp.');
+      return;
+    }
+    expiresAt = new Date(parsed).toISOString();
   }
 
   let issuedRow: ReturnType<typeof mapCredentialRow> | undefined;
@@ -176,13 +259,18 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
     });
 
     // Canonical identities are generated here — never accepted from the client.
+    // NOTE: credentials.tx_hash / merkle_root / digital_signature are intentionally
+    // left NULL. Those columns are meant to hold real ledger anchor evidence and
+    // real signatures; SecureX does not yet produce either, so a placeholder would
+    // be fabricated evidence. They stay NULL until a genuine implementation writes
+    // them, and the public verification DTO never exposes them.
     const id = entityId('cred');
     const credentialId = newPublicCredentialId(Date.now() % 9000);
     const issuedAt = nowIso();
     await run(
       `INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id,
-         issuer_id, institution_id, status, issued_at, expires_at, tx_hash, merkle_root, digital_signature, template_id, metadata_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, ?, ?)`,
+         issuer_id, institution_id, status, issued_at, expires_at, template_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?)`,
       id,
       credentialId,
       body.type,
@@ -190,17 +278,18 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
       body.description,
       body.holderName,
       holderId,
-      body.issuerId,
-      body.institutionId,
+      issuer.issuerId,
+      institution.institutionId,
       issuedAt,
-      body.expiresAt ?? null,
-      newTxRef(),
-      makeHex((Date.now() % 100000) + 1000),
-      makeHex((Date.now() % 100000) + 2000),
+      expiresAt,
       body.templateId ?? null,
       body.metadata ? JSON.stringify(body.metadata) : null,
     );
 
+    // Local platform event log (drives the explorer projection). This is a
+    // platform-side record of a real event — it is NOT a blockchain transaction.
+    // `confirmations` stays 0 and status stays PENDING because no chain
+    // confirmation exists for it.
     const top = await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks');
     const height = (top?.max ?? 0) + 1;
     await run(
@@ -220,7 +309,7 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
       action: 'CREDENTIAL_ISSUED',
       target: id,
       targetType: 'credential',
-      details: `institution=${body.institutionName}; credential=${credentialId}; via web issue flow`,
+      details: `institution=${institution.institutionName}; issuer=${issuer.issuerName}; credential=${credentialId}; via web issue flow`,
     });
 
     const row = await get<CredentialRow>(`${credentialSelect} WHERE c.id = ?`, id);
@@ -233,7 +322,7 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
 credentialsRouter.post(
   '/:id/revoke',
   requireAuth,
-  requireRole(...CREDENTIAL_WRITER_ROLES),
+  requireRole(...CREDENTIAL_WRITE_ROLES),
   (req: Request, res: Response) => {
     void revokeCredentialHandler(req, res);
   },
@@ -246,18 +335,39 @@ async function revokeCredentialHandler(req: Request, res: Response): Promise<voi
     fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
     return;
   }
+
+  // ── Object-level authorization (the actual fix) ─────────────────────────
+  // Role membership is NOT sufficient. Tenant-scoped roles (INSTITUTION /
+  // ISSUER) may revoke only credentials their own organization owns;
+  // ADMIN-family roles keep their deliberate cross-institution access;
+  // AUDITOR is not a credential writer at all and is rejected by requireRole.
+  // Ownership comes from the credential's database row, never from the request.
+  const decision = await authorizeCredentialWrite(auth.user, {
+    institution_id: row.institution_id,
+    issuer_id: row.issuer_id,
+  });
+  if (!decision.allowed) {
+    // 404 (not 403) so an unauthorized caller cannot learn whether an
+    // out-of-scope credential exists.
+    fail(res, 404, 'CREDENTIAL_NOT_FOUND', 'Credential not found.');
+    return;
+  }
+
   const revokedAt = nowIso();
+  const reason = 'Revoked by authorized issuer or platform administrator';
   await transaction(async () => {
     await run(
       `UPDATE credentials SET status = 'REVOKED', revoked_at = ?, revoked_reason = ? WHERE id = ?`,
       revokedAt,
-      'Revoked by issuer',
+      reason,
       row.id,
     );
+    // Local platform event log. Not a blockchain transaction: there is no chain
+    // confirmation for this event, so confirmations stays 0 and status PENDING.
     const maxHeight = (await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks'))?.max ?? 0;
     await run(
       `INSERT INTO transactions (id, block_height, type, timestamp, from_address, to_address, credential_id, credential_row_id, status, gas_used, confirmations)
-       VALUES (?, ?, 'CREDENTIAL_REVOKED', ?, ?, ?, ?, ?, 'CONFIRMED', ?, 24)`,
+       VALUES (?, ?, 'CREDENTIAL_REVOKED', ?, ?, ?, ?, ?, 'PENDING', ?, 0)`,
       newTxRef(),
       maxHeight,
       revokedAt,
@@ -271,7 +381,7 @@ async function revokeCredentialHandler(req: Request, res: Response): Promise<voi
       action: 'CREDENTIAL_REVOKED',
       target: row.id,
       targetType: 'credential',
-      details: `institution=${row.institution_name}; credential=${row.credential_id}; reason=${row.revoked_reason}`,
+      details: `institution=${row.institution_name}; credential=${row.credential_id}; role=${auth.user.role}`,
     });
   });
   ok(res, { message: 'Credential revoked.' });

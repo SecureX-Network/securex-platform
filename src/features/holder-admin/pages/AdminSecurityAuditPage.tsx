@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, ScrollText, Search } from 'lucide-react';
 import {
   Badge,
@@ -13,7 +13,7 @@ import {
 import type { Column } from '@/components/ui';
 import { getRealAuditEvents } from '@/features/holder-admin/services/holderAdminService';
 import type { AuditEvent } from '@/types';
-import { formatDate } from '@/utils';
+import { formatDate, toCsv, downloadCsv, csvFilename } from '@/utils';
 
 const PAGE_SIZE = 8;
 
@@ -70,6 +70,22 @@ export default function AdminSecurityAuditPage() {
       );
     });
   }, [events, search, actionFilter, dateFilter]);
+
+  // Exports every filtered event, not just the visible page.
+  const handleExport = useCallback(() => {
+    const csv = toCsv<AuditEvent>(filtered, [
+      { header: 'Event ID', value: (e) => e.id },
+      { header: 'Timestamp', value: (e) => formatDate(e.timestamp) },
+      { header: 'Action', value: (e) => e.action },
+      { header: 'Actor', value: (e) => e.actor },
+      { header: 'Actor role', value: (e) => e.actorRole },
+      { header: 'Target', value: (e) => e.target },
+      { header: 'Target type', value: (e) => e.targetType },
+      { header: 'Details', value: (e) => e.details ?? '' },
+      { header: 'IP address', value: (e) => e.ipAddress },
+    ]);
+    downloadCsv(csvFilename('audit-log'), csv);
+  }, [filtered]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -146,7 +162,8 @@ export default function AdminSecurityAuditPage() {
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Audit Log</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Immutable trail of platform actions for compliance and forensics.{' '}
+            Platform audit trail of recorded actions and events, for review and
+            investigation.{' '}
             <span className="font-medium text-neutral-700">{filtered.length} events</span>
             {dateFilter !== 'ALL' && ` in the last ${dateFilter.replace('d', ' days')}`}.
           </p>
@@ -154,7 +171,8 @@ export default function AdminSecurityAuditPage() {
         <Button
           variant="outline"
           leftIcon={<Download className="h-4 w-4" />}
-          onClick={() => {}}
+          onClick={handleExport}
+          disabled={filtered.length === 0}
         >
           Export CSV
         </Button>
@@ -163,7 +181,7 @@ export default function AdminSecurityAuditPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search action, actor, target, IP\u2026"
+          placeholder="Search action, actor, target, IP…"
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);

@@ -1,6 +1,7 @@
 import {
   parseJson,
 } from '../utils/http.js';
+import { effectiveCredentialStatus } from '../services/credentialStatus.js';
 import type { AuthUser } from '../middleware/auth.js';
 
 export interface UserRow {
@@ -168,6 +169,15 @@ export function mapIssuerRow(row: IssuerRow) {
   };
 }
 
+/**
+ * Authenticated credential view. Rich by design — institution/admin surfaces
+ * legitimately need the internal ids, metadata and stored references.
+ *
+ * `status` is the EFFECTIVE status (see services/credentialStatus.ts), so a
+ * credential whose `expires_at` has passed reads back as EXPIRED instead of
+ * continuing to present as VALID. The value is derived on read; this mapper
+ * never writes to the database.
+ */
 export function mapCredentialRow(row: CredentialRow) {
   return {
     id: row.id,
@@ -181,7 +191,8 @@ export function mapCredentialRow(row: CredentialRow) {
     issuerName: row.issuer_name ?? row.issuer_id,
     institutionId: row.institution_id,
     institutionName: row.institution_name ?? row.institution_id,
-    status: row.status,
+    status: effectiveCredentialStatus(row),
+    storedStatus: row.status,
     issuedAt: row.issued_at,
     expiresAt: row.expires_at ?? undefined,
     revokedAt: row.revoked_at ?? undefined,

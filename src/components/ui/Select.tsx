@@ -34,6 +34,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       placeholder,
       size = "md",
       id,
+      value,
       defaultValue,
       disabled,
       className,
@@ -70,7 +71,16 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             id={selectId}
             disabled={disabled}
-            defaultValue={defaultValue ?? (placeholder ? "" : undefined)}
+            value={value}
+            // A <select> may not be given both `value` and `defaultValue`;
+            // React logs a controlled/uncontrolled warning and the element stops
+            // behaving predictably. Only fall back to `defaultValue` when the
+            // consumer is not driving the selection.
+            defaultValue={
+              value !== undefined
+                ? undefined
+                : (defaultValue ?? (placeholder ? "" : undefined))
+            }
             aria-invalid={error ? true : undefined}
             aria-describedby={describedBy}
             className={classNames(

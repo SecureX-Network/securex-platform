@@ -11,10 +11,18 @@ import { dashboardFor } from '@/app/config/roleRouting';
 import type { User } from '@/types';
 import { AuthLayout } from '../components/AuthLayout';
 
+/**
+ * DEMO accounts offered on the sign-in page. Passwords are deliberately NOT
+ * rendered: the "Use" button fills both fields, so a recorded demo never has a
+ * plaintext password on screen. Every account here exists in the seeded mock
+ * dataset and the backend seed, so the same credentials work in DEMO and REAL.
+ */
 const DEMO_ACCOUNTS = [
   { role: 'Admin', email: 'admin@securex.io', password: 'Password123!' },
   { role: 'Holder', email: 'emily.rodriguez@example.com', password: 'Password123!' },
   { role: 'Employer', email: 'marcus.johnson@acme.com', password: 'Password123!' },
+  { role: 'Institution', email: 's.chen@stanford.edu', password: 'Password123!' },
+  { role: 'Issuer', email: 'cs-graduation@stanford.edu', password: 'Password123!' },
 ];
 
 export default function LoginPage() {
@@ -132,18 +140,26 @@ export default function LoginPage() {
 
       <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Demo credentials
+          Demo accounts
         </p>
-        <ul className="mt-2 space-y-1.5">
+        <p className="mt-1 text-xs text-slate-500">
+          Select a role to fill the form. Institution and Issuer are scoped to
+          Stanford University.
+        </p>
+        <ul className="mt-3 space-y-1.5">
           {DEMO_ACCOUNTS.map((account) => (
-            <li key={account.role} className="text-sm text-slate-600">
-              <span className="font-medium text-slate-800">{account.role}:</span>{' '}
-              <span className="font-mono text-xs">{account.email}</span> /{' '}
-              <span className="font-mono text-xs">{account.password}</span>{' '}
+            <li
+              key={account.role}
+              className="flex items-center justify-between gap-3 text-sm text-slate-600"
+            >
+              <span className="min-w-0">
+                <span className="font-medium text-slate-800">{account.role}:</span>{' '}
+                <span className="truncate font-mono text-xs">{account.email}</span>
+              </span>
               <button
                 type="button"
                 onClick={() => fillDemo(account.email, account.password)}
-                className="ml-1 text-xs font-medium text-securex-700 hover:underline"
+                className="shrink-0 text-xs font-medium text-securex-700 hover:underline"
               >
                 Use
               </button>

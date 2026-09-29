@@ -307,7 +307,7 @@ export default function SecuritySettingsPage() {
               <p className="text-sm font-medium text-neutral-800">Blockchain Verification</p>
             </div>
             <p className="mt-1 text-xs text-neutral-500">
-              All credentials verified against the distributed ledger.
+              Credentials are checked against the SecureX platform record.
             </p>
             <Badge variant="success" size="sm" className="mt-2">
               Active

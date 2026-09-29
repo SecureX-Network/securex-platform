@@ -90,6 +90,11 @@ export function QRScanner({ onDecoded, onSwitchToManual }: QRScannerProps) {
         setState('no-camera');
         return;
       }
+      // The cleanup below sets `pausedRef` to stop the loop, and the same ref is
+      // reused when the effect re-runs (React StrictMode mounts, tears down and
+      // remounts effects). Clear it here or the fresh run's play() callback sees
+      // a stale "paused" and never starts the decode loop.
+      pausedRef.current = false;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -158,8 +163,22 @@ export function QRScanner({ onDecoded, onSwitchToManual }: QRScannerProps) {
   return (
     <div>
       <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+        {/*
+          The video element stays MOUNTED in every state. The stream is attached
+          from the mount effect, which runs before any state update has rendered
+          the scanning view, so a conditionally rendered <video> would leave
+          `videoRef.current` null at attach time and the scanner could never
+          start. States are layered on top of it instead.
+        */}
+        <video
+          ref={videoRef}
+          muted
+          playsInline
+          aria-label="SecureX QR scanner camera feed"
+          className="h-64 w-full bg-slate-950 object-cover"
+        />
         {state === 'permission-denied' || state === 'no-camera' ? (
-          <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 p-8 text-center text-slate-200">
+          <div className="absolute inset-0 flex min-h-[256px] flex-col items-center justify-center gap-4 p-8 text-center text-slate-200">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-800 text-slate-300">
               {state === 'permission-denied' ? (
                 <CameraOff className="h-7 w-7" />
@@ -174,19 +193,12 @@ export function QRScanner({ onDecoded, onSwitchToManual }: QRScannerProps) {
             </p>
           </div>
         ) : state === 'starting' ? (
-          <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 p-8 text-slate-200">
+          <div className="absolute inset-0 flex min-h-[256px] flex-col items-center justify-center gap-4 p-8 text-slate-200">
             <Spinner size="lg" color="#ffffff" label="Starting camera…" />
             <p className="text-xs text-slate-400">Requesting access to your camera.</p>
           </div>
         ) : (
           <>
-            <video
-              ref={videoRef}
-              muted
-              playsInline
-              aria-label="SecureX QR scanner camera feed"
-              className="h-64 w-full object-cover"
-            />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="h-40 w-40 rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" />
             </div>

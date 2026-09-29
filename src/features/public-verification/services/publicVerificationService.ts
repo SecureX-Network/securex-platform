@@ -1,4 +1,7 @@
-import { verifyCredential, type PlatformVerificationResult } from '@/services/api/verificationService';
+import {
+  verifyCredential,
+  type PublicVerificationResult,
+} from '@/services/api/verificationService';
 import type { VerificationView } from '@/features/holder-admin/services/holderAdminService';
 
 /**
@@ -8,8 +11,14 @@ import type { VerificationView } from '@/features/holder-admin/services/holderAd
  * flow live in the platform and verify here end-to-end. The result is mapped
  * to the VerificationView shape the shared verification UI renders.
  *
- * Optional documentHash runs the ledger document-integrity (tamper) check via
- * the platform's `hash` query parameter.
+ * Optional documentHash runs the platform-record document-integrity check via
+ * the platform's `hash` query parameter. It compares the supplied hash against
+ * the hash reference stored on the platform record; the stored reference itself
+ * is never returned.
+ *
+ * Nothing here invents capability: the DTO reports `available: false` for every
+ * check SecureX does not actually perform, and this mapper passes those reports
+ * through untouched.
  */
 export async function verifyPublicCredential(
   credentialId: string,
@@ -19,45 +28,22 @@ export async function verifyPublicCredential(
   return toVerificationView(res);
 }
 
-export function toVerificationView(res: PlatformVerificationResult): VerificationView {
-  const proof = res.blockchainProof;
-  const credential = res.credential;
-  const tampered = Boolean(res.documentHashCheck && !res.documentHashCheck.hashMatch);
-
+export function toVerificationView(res: PublicVerificationResult): VerificationView {
   return {
-    status: res.status as VerificationView['status'],
     credentialId: res.credentialId,
-    credentialHash: credential?.merkleRoot,
-    issuer: res.issuer
-      ? {
-          issuerId: credential?.issuerId ?? res.issuer.name,
-          name: res.issuer.name,
-          publicKey: res.issuer.publicKey ?? '',
-          status: res.issuer.verified ? 'ACTIVE' : 'UNKNOWN',
-        }
-      : undefined,
-    transaction: proof?.txHash
-      ? { id: proof.txHash, type: 'CREDENTIAL_ISSUED', blockHeight: proof.blockHeight ?? 0, blockHash: '' }
-      : undefined,
-    block: proof?.timestamp
-      ? { height: proof.blockHeight ?? 0, hash: '', timestamp: proof.timestamp, proposer: '' }
-      : undefined,
-    issuerSignatureValid: res.signatureVerification.valid,
-    keyStatus: undefined,
-    protocolCompatible: proof?.verified,
+    status: res.status,
+    storedStatus: res.storedStatus,
+    issuerName: res.issuerName,
+    issuedAt: res.issuedAt,
+    expiresAt: res.expiresAt,
+    revokedAt: res.revokedAt,
     verifiedAt: res.verifiedAt,
-    securityChecks: {
-      credentialExists: res.status !== 'NOT_FOUND',
-      signatureValid: res.signatureVerification.valid,
-      blockchainVerified: proof?.verified ?? false,
-      fraudRiskLow: res.fraudCheck.riskLevel === 'LOW',
+    checks: {
+      credentialRecord: res.checks.credentialRecord,
+      blockchainProof: res.checks.blockchainProof,
+      signature: res.checks.signature,
     },
-    documentHashCheck: res.documentHashCheck,
-    message:
-      res.status === 'NOT_FOUND'
-        ? 'Credential not found on the SecureX ledger.'
-        : tampered
-          ? 'The document hash does not match the ledger record. The document may have been tampered with.'
-          : undefined,
+    documentIntegrity: res.checks.documentIntegrity,
+    message: res.message,
   };
 }

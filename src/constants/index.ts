@@ -1,10 +1,28 @@
 import type { CredentialStatus, UserRole } from '@/types';
+import { config } from '@/config';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api';
-export const BLOCKCHAIN_API_URL = import.meta.env.VITE_BLOCKCHAIN_API_URL ?? 'http://localhost:3001';
-export const FRAUD_ENGINE_URL = import.meta.env.VITE_FRAUD_ENGINE_URL ?? 'http://localhost:4002/fraud';
+// ---------------------------------------------------------------------------
+// Re-exported from the single authoritative config source (src/config/index.ts).
+// Nothing here reads `import.meta.env` directly — see that file for the
+// fail-closed DEMO-mode rules and the "no blockchain URL / no blockchain secret
+// in the browser" rule.
+//
+// NOTE: there is intentionally NO `BLOCKCHAIN_API_URL` export any more. The
+// browser must not address the privileged blockchain service directly; all
+// chain operations are proxied by the Platform API (server/routes/blockchain.ts
+// -> server/services/blockchain.ts).
+// ---------------------------------------------------------------------------
 
-export const IS_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
+export const API_BASE_URL = config.API_URL;
+
+/**
+ * True only when DEMO mode was EXPLICITLY requested via
+ * `VITE_USE_MOCK=true`. Undefined resolves to REAL mode (fail closed).
+ */
+export const IS_MOCK = config.IS_MOCK;
+
+export const APP_NAME = config.APP_NAME;
+export const APP_VERSION = config.APP_VERSION;
 
 export const AUTH_TOKEN_KEY = 'securex_auth_token';
 export const AUTH_USER_KEY = 'securex_auth_user';
@@ -13,6 +31,8 @@ export const MOCK_DELAY = 500;
 
 export const ROUTES = {
   HOME: '/',
+  APP_HOME: '/home',
+  ACTIVITY: '/activity',
   ABOUT: '/about',
   HOW_IT_WORKS: '/how-it-works',
   CONTACT: '/contact',
@@ -22,39 +42,46 @@ export const ROUTES = {
   MFA: '/auth/mfa',
   VERIFY: '/verify',
   VERIFY_CREDENTIAL: '/verify/:credentialId',
-  HOLDER: '/holder',
-  HOLDER_DASHBOARD: '/holder/dashboard',
-  HOLDER_WALLET: '/holder/wallet',
-  HOLDER_CREDENTIALS: '/holder/credentials',
-  HOLDER_CREDENTIAL_DETAIL: '/holder/credentials/:id',
-  HOLDER_SHARE: '/holder/share',
-  HOLDER_NOTIFICATIONS: '/holder/notifications',
-  HOLDER_SETTINGS: '/holder/settings',
+  /**
+   * Canonical end-user paths. The `/holder/*` and `/employer/*` URLs are kept
+   * only as redirects in AppRoutes — never link to them, so the address bar
+   * never shows a legacy path.
+   */
+  HOLDER: '/home',
+  HOLDER_DASHBOARD: '/home',
+  HOLDER_WALLET: '/wallet',
+  HOLDER_CREDENTIALS: '/credentials',
+  HOLDER_CREDENTIAL_DETAIL: '/credentials/:id',
+  HOLDER_SHARE: '/share',
+  HOLDER_VERIFY_CREDENTIAL: '/verify-credential',
+  HOLDER_NOTIFICATIONS: '/notifications',
+  HOLDER_SETTINGS: '/account/settings',
   INSTITUTION: '/institution',
-  INSTITUTION_DASHBOARD: '/institution/dashboard',
+  INSTITUTION_DASHBOARD: '/home',
   INSTITUTION_CREDENTIALS: '/institution/credentials',
+  INSTITUTION_HOLDERS: '/institution/holders',
   INSTITUTION_ISSUERS: '/institution/issuers',
   INSTITUTION_ISSUE: '/institution/issue',
   INSTITUTION_TEMPLATES: '/institution/templates',
   INSTITUTION_ISSUER_DETAIL: '/institution/issuers/:id',
-  EMPLOYER: '/employer',
-  EMPLOYER_DASHBOARD: '/employer/dashboard',
-  EMPLOYER_VERIFY: '/employer/verify',
-  EMPLOYER_HISTORY: '/employer/history',
+  EMPLOYER: '/home',
+  EMPLOYER_DASHBOARD: '/home',
+  EMPLOYER_VERIFY: '/verify-credential',
+  EMPLOYER_HISTORY: '/verification-history',
   EXPLORER: '/explorer',
   EXPLORER_BLOCKS: '/explorer/blocks',
   EXPLORER_BLOCK_DETAIL: '/explorer/blocks/:hash',
   EXPLORER_TRANSACTIONS: '/explorer/transactions',
   EXPLORER_TRANSACTION_DETAIL: '/explorer/transactions/:id',
   ADMIN: '/admin',
-  ADMIN_DASHBOARD: '/admin/dashboard',
+  ADMIN_DASHBOARD: '/home',
   ADMIN_INSTITUTIONS: '/admin/institutions',
   ADMIN_ISSUERS: '/admin/issuers',
   ADMIN_USERS: '/admin/users',
   ADMIN_SECURITY: '/admin/security',
   ADMIN_SECURITY_ALERTS: '/admin/security/alerts',
   ADMIN_SECURITY_AUDIT: '/admin/security/audit',
-  ADMIN_SETTINGS: '/admin/settings',
+  ADMIN_SETTINGS: '/account/settings',
   SECURITY: '/security',
   SECURITY_OVERVIEW: '/security',
   SECURITY_ALERTS: '/security/alerts',

@@ -1,20 +1,26 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/services/api/client';
+import { API_BASE_URL } from '@/constants';
 import type {
-  ApiBlock,
-  ApiValidator,
-  ApiNetworkStatus,
-  ApiHealth,
-  ApiPeers,
-} from '../types/backend';
+  ChainBlockDto,
+  ChainBlockPageDto,
+  ChainHealthDto,
+  ChainMetricsDto,
+  ChainNetworkDto,
+  ChainTransactionDto,
+  ChainTransactionRecordDto,
+  ChainValidatorDto,
+} from '@/services/api/blockchainProxy';
 
-// Integration-oriented tests for the REAL SecureX Blockchain V2 API mapping.
+// Integration-oriented tests for the REAL explorer mapping.
 //
-// These exercise the actual explorerService mapping logic (and the real
-// requestJson client wrapper) against a stubbed global fetch, so they NEVER
-// depend on a live production backend and do NOT invent any endpoints. The
-// stub returns exactly the shapes the backend contract defines in
-// src/features/explorer-simulation/types/backend.ts.
+// The browser never addresses the blockchain service: every read goes through
+// the SecureX Platform API's blockchain proxy (/api/blockchain/*), which holds
+// the service credential server-side. These tests exercise the real
+// explorerService mapping and the real requestJson client wrapper against a
+// stubbed global fetch, so they NEVER depend on a live service and do NOT
+// invent any endpoints. The stub returns exactly the projections declared in
+// src/services/api/blockchainProxy.ts.
 
 interface FakeResponse {
   ok: boolean;
@@ -46,31 +52,36 @@ async function loadDemoService() {
   return mod;
 }
 
-const sampleBlock: ApiBlock = {
-  header: {
-    version: 2,
-    height: 42,
-    timestamp: '2024-01-01T00:00:00.000Z',
-    previousHash: 'prev-hash',
-    merkleRoot: 'merkle-root',
-    proposerId: 'val-01',
-  },
-  transactions: [
-    {
-      protocolVersion: '1.0',
-      transactionVersion: 2,
-      id: 'tx-1',
-      type: 'CREDENTIAL_ISSUE',
-      timestamp: '2024-01-01T00:00:01.000Z',
-      sender: 'issuer-1',
-      nonce: 7,
-      payload: { subject: 'holder-1' },
-      signature: 'signature-1',
-    },
-  ],
-  validatorSignatures: [{ validatorId: 'val-01', signature: 'sig' }],
-  hash: 'block-hash-42',
+/** The url passed to fetch for the nth call. */
+function callUrl(index: number): string {
+  return String(fetchMock.mock.calls[index]![0]);
+}
+
+const sampleTransaction: ChainTransactionDto = {
+  id: 'tx-1',
+  type: 'CREDENTIAL_ISSUE',
+  timestamp: '2024-01-01T00:00:01.000Z',
+  sender: 'issuer-1',
+  nonce: 7,
+  protocolVersion: '1.0',
+  transactionVersion: 2,
 };
+
+const sampleBlock: ChainBlockDto = {
+  hash: 'block-hash-42',
+  height: 42,
+  previousHash: 'prev-hash',
+  merkleRoot: 'merkle-root',
+  timestamp: '2024-01-01T00:00:00.000Z',
+  proposerId: 'val-01',
+  version: 2,
+  transactionCount: 1,
+  transactions: [sampleTransaction],
+};
+
+function blockPage(blocks: ChainBlockDto[], offset = 0, limit = 10): ChainBlockPageDto {
+  return { blocks, offset, limit };
+}
 
 describe('explorerService real API integration', () => {
   beforeEach(() => {
@@ -91,21 +102,34 @@ describe('explorerService real API integration', () => {
     expect(demo.getDataSourceMode()).toBe('DEMO');
   });
 
-  it('maps a real block list response into explorer views with pagination metadata', async () => {
+  it('only ever addresses the Platform API blockchain proxy', async () => {
     const service = await loadRealService();
-    const block2: ApiBlock = {
+    fetchMock.mockResolvedValueOnce(fakeApi(blockPage([sampleBlock])));
+
+    await service.getExplorerBlocks(1, 10);
+
+    const url = callUrl(0);
+    expect(url.startsWith(`${API_BASE_URL}/blockchain/`)).toBe(true);
+    // No browser-side blockchain service host is ever contacted.
+    expect(url).not.toContain(':3001');
+  });
+
+  it('maps a real block page into explorer views with pagination metadata', async () => {
+    const service = await loadRealService();
+    const block41: ChainBlockDto = {
       ...sampleBlock,
-      header: { ...sampleBlock.header, height: 41, previousHash: 'prev-2' },
+      height: 41,
+      previousHash: 'prev-2',
       hash: 'block-hash-41',
     };
-    fetchMock.mockResolvedValueOnce(fakeApi([sampleBlock, block2]));
+    fetchMock.mockResolvedValueOnce(fakeApi(blockPage([sampleBlock, block41], 0, 10)));
 
     const page = await service.getExplorerBlocks(1, 10);
 
-    // offset derived from page/size
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/blocks?offset=0&limit=10'), expect.anything());
+    expect(callUrl(0)).toContain('/blockchain/blocks?offset=0&limit=10');
     expect(page.offset).toBe(0);
     expect(page.limit).toBe(10);
+    // total is the number of blocks reached so far (the proxy is offset/limit based)
     expect(page.total).toBe(2);
     // two rows returned but limit is 10 -> no more pages
     expect(page.hasMore).toBe(false);
@@ -129,35 +153,37 @@ describe('explorerService real API integration', () => {
     const service = await loadRealService();
     const blocks = Array.from({ length: 10 }, (_, i) => ({
       ...sampleBlock,
-      header: { ...sampleBlock.header, height: 42 - i },
+      height: 42 - i,
     }));
-    fetchMock.mockResolvedValueOnce(fakeApi(blocks));
+    fetchMock.mockResolvedValueOnce(fakeApi(blockPage(blocks, 0, 10)));
 
     const page = await service.getExplorerBlocks(1, 10);
     expect(page.blocks).toHaveLength(10);
     expect(page.hasMore).toBe(true);
   });
 
-  it('maps a single block by height using mapBlock', async () => {
+  it('maps a single block by height', async () => {
     const service = await loadRealService();
     fetchMock.mockResolvedValueOnce(fakeApi(sampleBlock));
 
     const block = await service.getExplorerBlockByHeight(42);
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/blocks/42'), expect.anything());
+    expect(callUrl(0)).toContain('/blockchain/blocks/42');
     expect(block.height).toBe(42);
     expect(block.transactions).toHaveLength(1);
     expect(block.transactions[0]!.blockHeight).toBe(42);
-    expect(block.transactions[0]!.protocolVersion).toContain('/ v2');
+    expect(block.transactions[0]!.protocolVersion).toBe('1.0 / v2');
   });
 
   it('maps a transaction record detail response', async () => {
     const service = await loadRealService();
-    fetchMock.mockResolvedValueOnce(
-      fakeApi({ transaction: sampleBlock.transactions[0], blockHeight: 42 }),
-    );
+    const record: ChainTransactionRecordDto = {
+      ...sampleTransaction,
+      blockHeight: 42,
+    };
+    fetchMock.mockResolvedValueOnce(fakeApi(record));
 
     const tx = await service.getExplorerTransactionById('tx-1');
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/transactions/tx-1'), expect.anything());
+    expect(callUrl(0)).toContain('/blockchain/transactions/tx-1');
     expect(tx.id).toBe('tx-1');
     expect(tx.sender).toBe('issuer-1');
     expect(tx.nonce).toBe(7);
@@ -167,11 +193,11 @@ describe('explorerService real API integration', () => {
 
   it('aggregates the recent-transactions list from real blocks (no list endpoint exists)', async () => {
     const service = await loadRealService();
-    fetchMock.mockResolvedValueOnce(fakeApi([sampleBlock]));
+    fetchMock.mockResolvedValueOnce(fakeApi(blockPage([sampleBlock], 0, 25)));
 
     const res = await service.getRecentTransactions(1, 12);
     // Aggregated from the real block payload — NOT an invented list endpoint.
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/blocks?offset=0'), expect.anything());
+    expect(callUrl(0)).toContain('/blockchain/blocks?offset=0');
     expect(res.transactions).toHaveLength(1);
     expect(res.transactions[0]!.id).toBe('tx-1');
     expect(res.transactions[0]!.blockHeight).toBe(42);
@@ -179,81 +205,127 @@ describe('explorerService real API integration', () => {
 
   it('maps real validator records to the limited honest view', async () => {
     const service = await loadRealService();
-    const validators: ApiValidator[] = [
-      { validatorId: 'val-01', publicKey: 'pk-1', status: 'ACTIVE', addedAt: '2024-01-01T00:00:00.000Z' },
-      { validatorId: 'val-02', publicKey: 'pk-2', status: 'INACTIVE', addedAt: '2024-01-02T00:00:00.000Z' },
+    const validators: ChainValidatorDto[] = [
+      { id: 'val-01', publicKey: 'pk-1', status: 'ACTIVE', active: true, addedAt: '2024-01-01T00:00:00.000Z' },
+      { id: 'val-02', publicKey: 'pk-2', status: 'INACTIVE', active: false, addedAt: '2024-01-02T00:00:00.000Z' },
     ];
     fetchMock.mockResolvedValueOnce(fakeApi(validators));
 
     const list = await service.getExplorerValidators();
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/state/validators'), expect.anything());
+    expect(callUrl(0)).toContain('/blockchain/validators');
     expect(list).toEqual([
       { id: 'val-01', publicKey: 'pk-1', active: true, addedAt: '2024-01-01T00:00:00.000Z' },
       { id: 'val-02', publicKey: 'pk-2', active: false, addedAt: '2024-01-02T00:00:00.000Z' },
     ]);
   });
 
-  it('maps real network status and falls back when metrics are unavailable', async () => {
+  it('maps network status and falls back when metrics are unavailable', async () => {
     const service = await loadRealService();
-    const status: ApiNetworkStatus = {
-      nodeId: 'node-1',
+    const network: ChainNetworkDto = {
       height: 100,
       peerCount: 3,
-      validators: 5,
+      validatorCount: 5,
       currentProposer: 'val-01',
       pendingTransactions: 2,
+      nodeId: 'node-1',
       status: 'RUNNING',
+      connectedPeers: ['node-2'],
+      knownPeers: [],
     };
     fetchMock
-      .mockResolvedValueOnce(fakeApi(status))
-      .mockResolvedValueOnce(Promise.reject(new ApiError('metrics down', 0)));
+      .mockResolvedValueOnce(fakeApi(network))
+      .mockRejectedValue(new ApiError('metrics down', 0));
 
     const net = await service.getExplorerNetworkStatus();
+    expect(callUrl(0)).toContain('/blockchain/network');
     expect(net.height).toBe(100);
     expect(net.peerCount).toBe(3);
     expect(net.validatorCount).toBe(5);
-    // metrics rejected -> fall back to status.validators, protocol default
+    // metrics unavailable -> fall back to the network read, and report the
+    // versions as unknown rather than inventing them.
     expect(net.activeValidatorCount).toBe(5);
     expect(net.currentProposer).toBe('val-01');
-    expect(net.protocolVersion).toBe('2.0');
+    expect(net.protocolVersion).toBe('unknown');
+    expect(net.nodeVersion).toBe('unknown');
     expect(net.nodeId).toBe('node-1');
     expect(net.status).toBe('RUNNING');
   });
 
-  it('maps real peers response', async () => {
+  it('uses the metrics read for versions when it is available', async () => {
     const service = await loadRealService();
-    const peers: ApiPeers = {
-      connected: ['node-2'],
-      known: [
+    const network: ChainNetworkDto = {
+      height: 100,
+      peerCount: 3,
+      validatorCount: 5,
+      currentProposer: null,
+      pendingTransactions: 0,
+      nodeId: 'node-1',
+      status: 'RUNNING',
+      connectedPeers: [],
+      knownPeers: [],
+    };
+    const metrics: ChainMetricsDto = {
+      height: 100,
+      blockCount: 100,
+      transactionCount: 420,
+      validatorCount: 5,
+      activeValidatorCount: 4,
+      consensusStatus: 'RUNNING',
+      currentProposer: 'val-02',
+      nodeVersion: 'v3.1.0',
+      protocolVersion: '3.1',
+      uptimeSeconds: 900,
+    };
+    fetchMock.mockResolvedValueOnce(fakeApi(network)).mockResolvedValueOnce(fakeApi(metrics));
+
+    const net = await service.getExplorerNetworkStatus();
+    expect(net.activeValidatorCount).toBe(4);
+    expect(net.currentProposer).toBe('val-02');
+    expect(net.protocolVersion).toBe('3.1');
+    expect(net.nodeVersion).toBe('v3.1.0');
+  });
+
+  it('maps real peers from the single network read', async () => {
+    const service = await loadRealService();
+    const network: ChainNetworkDto = {
+      height: 100,
+      peerCount: 1,
+      validatorCount: 5,
+      currentProposer: null,
+      pendingTransactions: 0,
+      nodeId: 'node-1',
+      status: 'RUNNING',
+      connectedPeers: ['node-2'],
+      knownPeers: [
         { nodeId: 'node-2', address: 'ws://node2:9000', lastSeen: '2024-01-01', isValidator: true },
       ],
-      peerCount: 1,
     };
-    fetchMock.mockResolvedValueOnce(fakeApi(peers));
+    fetchMock.mockResolvedValue(fakeApi(network));
 
     const result = await service.getExplorerPeers();
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/network/peers'), expect.anything());
+    expect(callUrl(0)).toContain('/blockchain/network');
     expect(result.connected).toEqual(['node-2']);
+    expect(result.known).toHaveLength(1);
     expect(result.peerCount).toBe(1);
   });
 
   it('maps real health response', async () => {
     const service = await loadRealService();
-    const health: ApiHealth = {
-      nodeId: 'node-1',
-      version: 'v2.1.0',
-      protocolVersion: '2.0',
+    const health: ChainHealthDto = {
+      status: 'UP',
       height: 100,
       peerCount: 3,
-      uptime: 120,
-      status: 'UP',
+      nodeVersion: 'v3.1.0',
+      protocolVersion: '3.1',
+      checkedAt: '2024-01-01T00:00:00.000Z',
     };
     fetchMock.mockResolvedValueOnce(fakeApi(health));
 
     const result = await service.getExplorerHealth();
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/health'), expect.anything());
+    expect(callUrl(0)).toContain('/blockchain/health');
     expect(result.status).toBe('UP');
     expect(result.height).toBe(100);
+    expect(result.protocolVersion).toBe('3.1');
   });
 
   it('surfaces a 404 as an ApiError with status 404 (unknown height)', async () => {
@@ -293,7 +365,7 @@ describe('explorerService real API integration', () => {
     });
   });
 
-  it('retries transient failures then reports the final error', async () => {
+  it('retries transient failures then reports the final result', async () => {
     const service = await loadRealService();
     fetchMock
       .mockRejectedValueOnce(new TypeError('boom'))
@@ -306,8 +378,14 @@ describe('explorerService real API integration', () => {
   });
 });
 
-function validatorsFixture(): ApiValidator[] {
+function validatorsFixture(): ChainValidatorDto[] {
   return [
-    { validatorId: 'val-01', publicKey: 'pk-1', status: 'ACTIVE', addedAt: '2024-01-01T00:00:00.000Z' },
+    {
+      id: 'val-01',
+      publicKey: 'pk-1',
+      status: 'ACTIVE',
+      active: true,
+      addedAt: '2024-01-01T00:00:00.000Z',
+    },
   ];
 }

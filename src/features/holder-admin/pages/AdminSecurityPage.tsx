@@ -196,7 +196,7 @@ export default function AdminSecurityPage() {
                     {assessment.credentialId}
                   </p>
                   <p className="text-xs text-neutral-500">
-                    {assessment.method} \u00b7 risk score {assessment.score}
+                    {assessment.method} · risk score {assessment.score}
                   </p>
                   {assessment.flags.length > 0 && (
                     <p className="mt-1 text-xs text-neutral-600">

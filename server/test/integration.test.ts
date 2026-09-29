@@ -153,13 +153,46 @@ describe('SecureX Platform API integration', () => {
     assert.ok(Array.isArray(res.body.data.recentActivity));
   });
 
-  test('credentials list requires auth and returns seeded credentials', async () => {
+  test('credentials list requires auth and is scoped to the caller', async () => {
     const { data } = await login('emily.rodriguez@example.com');
     const res = await request(app).get('/api/credentials').set(bearer(data.token));
     assert.equal(res.status, 200);
-    const creds = res.body.data as Array<{ credentialId: string; status: string }>;
-    assert.equal(creds.length, 15);
-    assert.ok(creds.some((c) => c.credentialId === 'SX-EF4B-390A-7C58' && c.status === 'TAMPERED'));
+    const creds = res.body.data as Array<{
+      credentialId: string;
+      holderId: string;
+      status: string;
+    }>;
+    // A holder only ever sees their own wallet: the list is scoped by the
+    // BACKEND, so it can never widen by passing another holder's id.
+    assert.ok(creds.length > 0);
+    assert.ok(creds.every((c) => c.holderId === 'usr-holder-001'));
+    assert.ok(
+      creds.some((c) => c.credentialId === 'SX-2F9C-A41B-8D7E' && c.status === 'VALID'),
+    );
+    // Another holder's record is never in the list.
+    assert.ok(!creds.some((c) => c.credentialId === 'SX-EF4B-390A-7C58'));
+
+    const admin = await login('admin@securex.io');
+    const all = await request(app)
+      .get('/api/credentials')
+      .set(bearer(admin.data.token));
+    const allCreds = all.body.data as Array<{ credentialId: string; status: string }>;
+    assert.equal(allCreds.length, 15);
+    assert.ok(
+      allCreds.some(
+        (c) => c.credentialId === 'SX-EF4B-390A-7C58' && c.status === 'TAMPERED',
+      ),
+    );
+  });
+
+  test('an out-of-scope credential reads as not found', async () => {
+    const { data } = await login('emily.rodriguez@example.com');
+    // cred-015 belongs to another holder (usr-holder-002).
+    const res = await request(app)
+      .get('/api/credentials/SX-EF4B-390A-7C58')
+      .set(bearer(data.token));
+    assert.equal(res.status, 404);
+    assert.equal(res.body.errorCode, 'CREDENTIAL_NOT_FOUND');
   });
 
   test('credentials can be filtered by holder', async () => {
@@ -176,22 +209,36 @@ describe('SecureX Platform API integration', () => {
     const res = await request(app).get('/api/verifications?credentialId=SX-2F9C-A41B-8D7E');
     assert.equal(res.status, 200);
     assert.equal(res.body.data.status, 'VALID');
-    assert.equal(res.body.data.credential.credentialId, 'SX-2F9C-A41B-8D7E');
-    assert.equal(res.body.data.blockchainProof.verified, true);
+    assert.equal(res.body.data.credentialId, 'SX-2F9C-A41B-8D7E');
+    assert.equal(res.body.data.issuerName, 'Stanford University');
+    assert.equal(res.body.data.checks.credentialRecord.verified, true);
+    // No blockchain proof is claimed: the capability is reported as unavailable.
+    assert.equal(res.body.data.checks.blockchainProof.verified, false);
+    assert.equal(res.body.data.checks.blockchainProof.available, false);
+    assert.equal(res.body.data.checks.signature.available, false);
+    // The public DTO exposes no internal credential record and no holder data.
+    assert.equal('credential' in res.body.data, false);
+    assert.equal('holderId' in res.body.data, false);
+    assert.equal('holderName' in res.body.data, false);
+    assert.equal('merkleRoot' in res.body.data, false);
   });
 
   test('verifications report NOT_FOUND for unknown IDs', async () => {
     const res = await request(app).get('/api/verifications?credentialId=SX-0000-0000-0000');
     assert.equal(res.status, 200);
     assert.equal(res.body.data.status, 'NOT_FOUND');
-    assert.equal(res.body.data.blockchainProof.verified, false);
+    assert.equal(res.body.data.storedStatus, 'NOT_FOUND');
+    assert.equal(res.body.data.issuerName, null);
+    assert.equal(res.body.data.checks.credentialRecord.verified, false);
+    assert.equal(res.body.data.checks.credentialRecord.status, 'NOT_FOUND');
+    assert.equal(res.body.data.checks.blockchainProof.verified, false);
   });
 
   test('wallet-shared public credential IDs resolve on the platform', async () => {
     const res = await request(app).get('/api/verifications?credentialId=SX-7A31-C0E4-19F6');
     assert.equal(res.status, 200);
     assert.equal(res.body.data.status, 'VALID');
-    assert.equal(res.body.data.credential.credentialId, 'SX-7A31-C0E4-19F6');
+    assert.equal(res.body.data.credentialId, 'SX-7A31-C0E4-19F6');
   });
 
   test('VerifyPage sample credentials all resolve on the platform', async () => {
@@ -205,7 +252,7 @@ describe('SecureX Platform API integration', () => {
       const res = await request(app).get(`/api/verifications?credentialId=${id}`);
       assert.equal(res.status, 200, `sample ${id} should return 200`);
       assert.equal(res.body.data.status, expected, `sample ${id} should be ${expected}`);
-      assert.equal(res.body.data.credential.credentialId, id);
+      assert.equal(res.body.data.credentialId, id);
     }
   });
 
@@ -214,25 +261,32 @@ describe('SecureX Platform API integration', () => {
     const cred = await request(app)
       .get('/api/credentials/SX-2F9C-A41B-8D7E')
       .set(bearer(data.token));
-    const anchored = cred.body.data.merkleRoot as string;
+    const storedReference = cred.body.data.merkleRoot as string;
     const res = await request(app)
-      .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${anchored}`);
+      .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${storedReference}`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.data.documentHashCheck.status, 'EXACT');
-    assert.equal(res.body.data.documentHashCheck.hashMatch, true);
-    assert.equal(res.body.data.signatureVerification.valid, true);
+    const integrity = res.body.data.checks.documentIntegrity;
+    assert.equal(integrity.status, 'EXACT');
+    assert.equal(integrity.hashMatch, true);
+    assert.equal(integrity.scope, 'PLATFORM_RECORD');
+    // The stored reference itself is never returned by the public endpoint.
+    assert.equal('anchoredHash' in integrity, false);
+    // A signature was never verified, so none is reported as valid.
+    assert.equal(res.body.data.checks.signature.verified, false);
   });
 
   test('verifications with a mismatched document hash flag a tamper check', async () => {
     const res = await request(app)
       .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${'f'.repeat(64)}`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.data.documentHashCheck.status, 'TAMPERED');
-    assert.equal(res.body.data.documentHashCheck.hashMatch, false);
-    assert.equal(res.body.data.signatureVerification.valid, false);
-    assert.ok(res.body.data.fraudCheck.flags.some(
-      (f: string) => f.indexOf('hash verification failed') !== -1 || f.indexOf('Hash verification failed') !== -1,
-    ));
+    const integrity = res.body.data.checks.documentIntegrity;
+    assert.equal(integrity.status, 'TAMPERED');
+    assert.equal(integrity.hashMatch, false);
+    // The credential record itself is still the platform's VALID record: a
+    // document mismatch is reported as a document-integrity result, not as a
+    // fabricated ledger or signature finding.
+    assert.equal(res.body.data.checks.credentialRecord.verified, true);
+    assert.equal(res.body.data.checks.signature.available, false);
   });
 
   test('verifications reject a malformed document hash', async () => {
@@ -361,7 +415,7 @@ describe('SecureX Platform API integration', () => {
     assert.equal(res.body.data.status, 'VALID');
   });
 
-  test('SIH flow: a newly issued credential is publicly verifiable with ledger proof', async () => {
+  test('SIH flow: a newly issued credential is publicly verifiable from the platform record', async () => {
     const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
     const issue = await request(app)
       .post('/api/credentials')
@@ -386,23 +440,63 @@ describe('SecureX Platform API integration', () => {
       .get(`/api/verifications?credentialId=${issuedId}`);
     assert.equal(verify.status, 200);
     assert.equal(verify.body.data.status, 'VALID');
-    assert.equal(verify.body.data.credential.credentialId, issuedId);
-    assert.equal(verify.body.data.blockchainProof.verified, true);
-    assert.ok(verify.body.data.blockchainProof.txHash);
+    assert.equal(verify.body.data.credentialId, issuedId);
+    assert.equal(verify.body.data.issuerName, 'Stanford University');
+    assert.equal(verify.body.data.checks.credentialRecord.verified, true);
+    // The issuance is NOT reported as a blockchain proof: no inclusion proof
+    // exists, so the capability is reported as unavailable instead.
+    assert.equal(verify.body.data.checks.blockchainProof.verified, false);
+    assert.equal(verify.body.data.checks.blockchainProof.available, false);
+    assert.equal('txHash' in verify.body.data.checks.blockchainProof, false);
   });
 
-  test('credential revoke transitions and records a ledger event', async () => {
+  test('a cross-tenant lifecycle transition is refused as not found', async () => {
     const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    // cred-005 (SX-3A17-B9F2-6D48) belongs to inst-ancc, not to Stanford, so the
+    // object-level authorization refuses it — and reports it identically to a
+    // missing credential so the endpoint cannot probe other tenants.
     const res = await request(app)
       .post('/api/credentials/SX-3A17-B9F2-6D48/revoke')
+      .set(bearer(data.token));
+    assert.equal(res.status, 404);
+    assert.equal(res.body.errorCode, 'CREDENTIAL_NOT_FOUND');
+  });
+
+  test('credential revoke transitions the platform record', async () => {
+    const { data } = await login('s.chen@stanford.edu', 'INSTITUTION');
+    const issue = await request(app)
+      .post('/api/credentials')
+      .set(bearer(data.token))
+      .send({
+        type: 'Certificate',
+        title: 'Revoke Scope Credential',
+        description: 'lifecycle revoke within the caller institution',
+        holderName: 'Emily Rodriguez',
+        holderEmail: 'emily.rodriguez@example.com',
+        holderId: 'usr-holder-001',
+        issuerId: 'iss-stanford-online',
+        issuerName: 'Stanford Online Learning',
+        institutionId: 'inst-stanford',
+        institutionName: 'Stanford University',
+      });
+    assert.equal(issue.status, 201);
+    const issuedId = issue.body.data.credentialId as string;
+
+    const res = await request(app)
+      .post(`/api/credentials/${issuedId}/revoke`)
       .set(bearer(data.token));
     assert.equal(res.status, 200);
 
     const cred = await request(app)
-      .get('/api/credentials/SX-3A17-B9F2-6D48')
+      .get(`/api/credentials/${issuedId}`)
       .set(bearer((await login('admin@securex.io')).data.token));
     assert.equal(cred.body.data.status, 'REVOKED');
     assert.ok(cred.body.data.revokedAt);
+
+    // Public verification reports the revoked state with no reason exposed.
+    const verify = await request(app).get(`/api/verifications/${issuedId}`);
+    assert.equal(verify.body.data.status, 'REVOKED');
+    assert.equal('revokedReason' in verify.body.data, false);
   });
 
   test('identity: two consecutive issues produce distinct canonical identities', async () => {
@@ -505,14 +599,24 @@ describe('SecureX Platform API integration', () => {
     const byPath = await request(app).get(`/api/verifications/${pub}`);
     assert.equal(byPath.status, 200);
     assert.equal(byPath.body.data.credentialId, pub);
-    assert.equal(byPath.body.data.credential.id, iid);
-    assert.equal(byPath.body.data.credential.status, 'VALID');
-    assert.equal(byPath.body.data.blockchainProof.verified, true);
+    assert.equal(byPath.body.data.status, 'VALID');
+    assert.equal(byPath.body.data.checks.credentialRecord.verified, true);
+    // The public DTO deliberately does not carry the internal record id, so the
+    // canonical linkage is asserted through the authenticated platform record.
+    assert.equal('credential' in byPath.body.data, false);
+    const record = await request(app)
+      .get(`/api/credentials/${pub}`)
+      .set(bearer((await login('admin@securex.io')).data.token));
+    assert.equal(record.status, 200);
+    assert.equal(record.body.data.id, iid);
+    assert.equal(record.body.data.credentialId, pub);
 
     const byQuery = await request(app).get(`/api/verifications?credentialId=${pub}`);
     assert.equal(byQuery.status, 200);
     assert.equal(byQuery.body.data.credentialId, pub);
-    assert.equal(byQuery.body.data.credential.id, iid);
+    // Both forms answer from the same canonical record.
+    assert.equal(byQuery.body.data.storedStatus, byPath.body.data.storedStatus);
+    assert.equal(byQuery.body.data.issuedAt, byPath.body.data.issuedAt);
   });
 
   test('identity: unknown holder email is auto-created and FK-referenced (backend owns identity)', async () => {
@@ -697,7 +801,7 @@ describe('SecureX Platform API integration', () => {
     const verify = await request(app).get(`/api/verifications/${pub}`);
     assert.equal(verify.status, 200);
     assert.equal(verify.body.data.credentialId, pub);
-    assert.equal(verify.body.data.credential.id, iid);
+    assert.equal(verify.body.data.status, 'VALID');
   });
 
   test('identity: revoke lifecycle keeps identity and traces the state change', async () => {

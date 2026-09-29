@@ -129,7 +129,7 @@ export default function HolderCredentialsPage() {
       <div className="space-y-3">
         <Input
           type="search"
-          placeholder="Search by name, issuer, type, or ID\u2026"
+          placeholder="Search by name, issuer, type, or ID…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
@@ -193,12 +193,11 @@ export default function HolderCredentialsPage() {
               title={credential.title}
               credentialType={credential.type}
               issuer={credential.institutionName}
-              issuerVerified
               status={credential.status}
               issuedAt={credential.issuedAt}
               expiresAt={credential.expiresAt}
               credentialId={credential.credentialId}
-              onClick={() => navigate(`/holder/credentials/${credential.id}`)}
+              onClick={() => navigate(`/credentials/${credential.id}`)}
             />
           ))}
         </div>

@@ -8,8 +8,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
-  Fingerprint,
-  Layers,
+  Info,
   Link2,
   QrCode,
   Share2,
@@ -18,17 +17,21 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import {
-  Badge,
   Button,
   Card,
   ErrorState,
   Spinner,
   StatusIndicator,
 } from '@/components/ui';
-import { getRealCredential, getRealCredentialHistory } from '@/features/holder-admin/services/holderAdminService';
+import {
+  getRealCredential,
+  getRealCredentialHistory,
+  getRealQrReference,
+  verifyRealCredential,
+  type VerificationView,
+} from '@/features/holder-admin/services/holderAdminService';
 import type { ApiCredentialHistoryEntry } from '@/features/holder-admin/types/backend';
 import type { Credential } from '@/types';
-import { useAuth } from '@/hooks/useAuth';
 import { formatDate, truncateHash } from '@/utils';
 
 const statusTone: Record<
@@ -48,7 +51,8 @@ const statusTone: Record<
 interface LifecycleEvent {
   type: string;
   label: string;
-  date: string;
+  /** Omitted when the platform did not record a timestamp for this event. */
+  date?: string;
   icon: typeof CheckCircle2;
   color: string;
   key?: string;
@@ -80,11 +84,14 @@ function buildLifecycleHistory(credential: Credential): LifecycleEvent[] {
     });
   }
 
+  // SUSPENDED / TAMPERED are states on the record, not dated events. The
+  // platform record does not store when they happened, so no timestamp is
+  // invented here — the dated history from the API is used when it exists.
   if (credential.status === 'SUSPENDED') {
     events.push({
       type: 'SUSPENDED',
-      label: 'Credential suspended',
-      date: credential.issuedAt,
+      label: 'Credential is currently suspended',
+      date: undefined,
       icon: ShieldAlert,
       color: 'bg-warning-50 text-warning-600',
     });
@@ -93,8 +100,8 @@ function buildLifecycleHistory(credential: Credential): LifecycleEvent[] {
   if (credential.status === 'TAMPERED') {
     events.push({
       type: 'TAMPERED',
-      label: 'Tamper detected',
-      date: credential.issuedAt,
+      label: 'Record is flagged as tampered',
+      date: undefined,
       icon: ShieldX,
       color: 'bg-danger-50 text-danger-600',
     });
@@ -114,7 +121,7 @@ function buildLifecycleHistory(credential: Credential): LifecycleEvent[] {
   }
 
   return events.sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    (a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime(),
   );
 }
 
@@ -145,20 +152,23 @@ function DetailRow({
 
 export default function HolderCredentialDetailPage() {
   const { credentialId = '' } = useParams<{ credentialId: string }>();
-  const { user } = useAuth();
-  const holderId = user?.id ?? 'usr-holder-001';
   const [credential, setCredential] = useState<Credential | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [realHistory, setRealHistory] = useState<ApiCredentialHistoryEntry[]>([]);
   const [accessError, setAccessError] = useState<number | null>(null);
+  const [qrPayload, setQrPayload] = useState<string | null>(null);
+  const [qrUnavailable, setQrUnavailable] = useState(false);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
+  const [verification, setVerification] = useState<VerificationView | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setRealHistory([]);
     setAccessError(null);
-    getRealCredential(credentialId, holderId)
+    getRealCredential(credentialId)
       .then((data) => {
         if (active) setCredential(data);
       })
@@ -175,10 +185,30 @@ export default function HolderCredentialDetailPage() {
     getRealCredentialHistory(credentialId)
       .then((history) => active && setRealHistory(history))
       .catch(() => active && setRealHistory([]));
+    getRealQrReference(credentialId)
+      .then((ref) => {
+        if (!active) return;
+        setQrPayload(ref.qrContent);
+        setVerificationUrl(ref.verificationUrl);
+      })
+      .catch(() => {
+        if (!active) return;
+        setQrPayload(null);
+        setQrUnavailable(true);
+      });
+    verifyRealCredential(credentialId)
+      .then((v) => {
+        if (!active) return;
+        setVerification(v);
+        setVerificationError(null);
+      })
+      .catch(() => {
+        if (active) setVerificationError('Verification checks are unavailable right now.');
+      });
     return () => {
       active = false;
     };
-  }, [credentialId, holderId]);
+  }, [credentialId]);
 
   if (loading) {
     return (
@@ -193,7 +223,7 @@ export default function HolderCredentialDetailPage() {
       return (
         <div className="space-y-4">
           <Link
-            to="/holder/credentials"
+            to="/credentials"
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
           >
             <ArrowLeft className="h-4 w-4" /> Back to credentials
@@ -208,14 +238,14 @@ export default function HolderCredentialDetailPage() {
     return (
       <div className="space-y-4">
         <Link
-          to="/holder/credentials"
+          to="/credentials"
           className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
         >
           <ArrowLeft className="h-4 w-4" /> Back to credentials
         </Link>
         <ErrorState
           title="Credential not found"
-          description="We couldn\u2019t find this credential in your wallet."
+          description="We couldn’t find this credential in your wallet."
         />
       </div>
     );
@@ -244,7 +274,9 @@ export default function HolderCredentialDetailPage() {
     realEvents.length > 0 ? realEvents : lifecycle;
 
   const handleCopy = async () => {
-    const link = `${window.location.origin}/verify/${credential.credentialId}`;
+    const link =
+      verificationUrl ??
+      `${window.location.origin}/verify/${encodeURIComponent(credential.credentialId)}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -257,7 +289,7 @@ export default function HolderCredentialDetailPage() {
   return (
     <div className="space-y-5">
       <Link
-        to="/holder/credentials"
+        to="/credentials"
         className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-500 hover:text-neutral-800"
       >
         <ArrowLeft className="h-4 w-4" /> Back to credentials
@@ -273,7 +305,7 @@ export default function HolderCredentialDetailPage() {
               {credential.title}
             </h1>
             <p className="mt-1 text-sm text-neutral-500">
-              {credential.type} \u00b7 {credential.institutionName}
+              {credential.type} · {credential.institutionName}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.classes}`}>
@@ -311,11 +343,10 @@ export default function HolderCredentialDetailPage() {
         </div>
         <p className="text-base font-semibold text-neutral-900">{credential.issuerName}</p>
         <p className="text-sm text-neutral-500">{credential.institutionName}</p>
-        <div className="mt-3">
-          <Badge variant="success" icon={<ShieldCheck className="h-3.5 w-3.5" />}>
-            Verified issuer
-          </Badge>
-        </div>
+        <p className="mt-3 text-xs text-neutral-500">
+          SecureX does not independently attest to issuer identity. Confirm the
+          issuer through your own channel before relying on it.
+        </p>
       </Card>
 
       <Card>
@@ -342,50 +373,65 @@ export default function HolderCredentialDetailPage() {
 
       <Card>
         <div className="mb-2 flex items-center gap-2">
-          <Layers className="h-4 w-4 text-neutral-400" />
+          <ShieldCheck className="h-4 w-4 text-neutral-400" />
           <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-            Blockchain Proof
+            Verification checks
           </h2>
         </div>
-        <dl className="divide-y divide-neutral-100">
-          <DetailRow
-            label="Transaction hash"
-            value={truncateHash(credential.blockchainTxHash)}
-            mono
-            accent
-          />
-          <DetailRow
-            label="Merkle root"
-            value={truncateHash(credential.merkleRoot)}
-            mono
-          />
-          <DetailRow label="Block" value="Recorded on-chain" />
-        </dl>
-        <div className="mt-3 flex items-center gap-1.5 text-sm text-trust-700">
-          <CheckCircle2 className="h-4 w-4" />
-          Proof anchored to SecureX ledger
-        </div>
-      </Card>
-
-      <Card>
-        <div className="mb-2 flex items-center gap-2">
-          <Fingerprint className="h-4 w-4 text-neutral-400" />
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-            Digital Signature
-          </h2>
-        </div>
-        <dl className="divide-y divide-neutral-100">
-          <DetailRow
-            label="Signature"
-            value={truncateHash(credential.digitalSignature)}
-            mono
-          />
-          <DetailRow label="Algorithm" value="Ed25519-SHA256" />
-        </dl>
-        <div className="mt-3 flex items-center gap-1.5 text-sm text-trust-700">
-          <ShieldCheck className="h-4 w-4" />
-          Signature verified
-        </div>
+        {verification ? (
+          <>
+            <ul className="divide-y divide-neutral-100">
+              {(
+                [
+                  ['Credential record', verification.checks.credentialRecord],
+                  ['Blockchain proof', verification.checks.blockchainProof],
+                  ['Signature', verification.checks.signature],
+                ] as const
+              ).map(([label, check]) => (
+                <li key={label} className="py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-neutral-600">{label}</span>
+                    <span
+                      className={`inline-flex items-center gap-1 text-xs font-medium ${
+                        check.available
+                          ? check.verified
+                            ? 'text-trust-700'
+                            : 'text-danger-700'
+                          : 'text-neutral-500'
+                      }`}
+                    >
+                      {check.available ? (
+                        check.verified ? (
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Verified
+                          </>
+                        ) : (
+                          <>
+                            <ShieldX className="h-3.5 w-3.5" /> Failed
+                          </>
+                        )
+                      ) : (
+                        <>
+                          <Info className="h-3.5 w-3.5" /> Not performed
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-neutral-500">{check.detail}</p>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 flex items-start gap-1.5 border-t border-neutral-100 pt-3 text-xs text-neutral-500">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+              Checked against the SecureX platform record. A check marked “Not
+              performed” is one SecureX does not carry out — it is not a pass.
+            </p>
+          </>
+        ) : (
+          <p className="py-2 text-sm text-neutral-500">
+            {verificationError ?? 'Loading verification checks…'}
+          </p>
+        )}
       </Card>
 
       {shownLifecycle.length > 0 && (
@@ -412,20 +458,26 @@ export default function HolderCredentialDetailPage() {
                   <p className="text-sm font-medium text-neutral-800">
                     {event.label}
                   </p>
-                  <p className="text-xs text-neutral-500">
-                    {formatDate(event.date, {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
+                  {event.date ? (
+                    <p className="text-xs text-neutral-500">
+                      {formatDate(event.date, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-neutral-400">
+                      Date not recorded on the platform record
+                    </p>
+                  )}
                   {event.onChain && event.txId && (
                     <p className="mt-0.5 font-mono text-[11px] text-neutral-400">
                       tx {truncateHash(event.txId)}
                       {event.blockHeight !== undefined && (
-                        <> \u00b7 block #{event.blockHeight}</>
+                        <> · block #{event.blockHeight}</>
                       )}
                     </p>
                   )}
@@ -445,16 +497,26 @@ export default function HolderCredentialDetailPage() {
         </div>
         <div className="flex flex-col items-center gap-3 rounded-xl bg-neutral-50 p-5">
           <div className="flex h-40 w-40 items-center justify-center rounded-lg border border-neutral-200 bg-white p-2">
-            <QRCodeSVG
-              value={`${window.location.origin}/verify/${credential.credentialId}`}
-              size={132}
-              level="M"
-              includeMargin={false}
-            />
+            {qrPayload ? (
+              <QRCodeSVG value={qrPayload} size={132} level="M" includeMargin={false} />
+            ) : (
+              <span className="text-center">
+                <QrCode className="mx-auto h-9 w-9 text-neutral-400" />
+                <span className="mt-1 block text-[11px] text-neutral-400">
+                  {qrUnavailable ? 'QR unavailable' : 'Preparing QR…'}
+                </span>
+              </span>
+            )}
           </div>
           <p className="text-center text-xs text-neutral-500">
-            Scan this QR code to verify the credential securely.
+            Scan in the SecureX verifier to check this credential's current status.
           </p>
+          {qrUnavailable && (
+            <p className="text-center text-xs text-neutral-500">
+              The SecureX QR reference could not be loaded. The verification link
+              below still works.
+            </p>
+          )}
           <Button
             fullWidth
             leftIcon={<Share2 className="h-4 w-4" />}

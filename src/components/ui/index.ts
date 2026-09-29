@@ -86,8 +86,5 @@ export type {
 export { default as CredentialCard } from "./CredentialCard";
 export type { CredentialCardProps } from "./CredentialCard";
 
-export { default as VerificationResult } from "./VerificationResult";
-export type { VerificationResultProps } from "./VerificationResult";
-
 export { default as ModeIndicator } from "./ModeIndicator";
 export type { ModeIndicatorProps } from "./ModeIndicator";
