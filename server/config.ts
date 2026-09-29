@@ -86,9 +86,15 @@ const resolvedDatabaseUrl =
   rawDatabaseUrl ||
   env('TEST_DATABASE_URL', ENV === 'test' ? TEST_DATABASE_URL_DEFAULT : DEV_DATABASE_URL);
 
+// Public API version reported by /api/health and the GET / status page.
+// Declared here rather than imported so the compiled server does not need
+// package.json at runtime; keep it in step with the `version` field there.
+const API_VERSION = '1.0.0';
+
 export const serverConfig = {
   environment: ENV as Environment,
   isProduction,
+  apiVersion: API_VERSION,
   port: Number(env('PORT', '4000')),
   host: env('HOST', 'localhost'),
   databaseUrl: resolvedDatabaseUrl,

@@ -35,6 +35,12 @@ let app: Express;
 let closeDb: () => Promise<void>;
 let database: typeof databaseModule;
 
+// Config and the landing view are resolved inside `before()` rather than via
+// static imports: static imports are hoisted above the process.env assignments
+// above, so they would capture the ambient environment instead of the test one.
+let serverConfig: typeof import('../config.js').serverConfig;
+let renderLandingPage: typeof import('../views/landing.js').renderLandingPage;
+
 before(async () => {
   // Deterministic baseline: wipe the public schema, then let initDb re-create
   // the schema and re-seed canonical demo data.
@@ -49,6 +55,8 @@ before(async () => {
   database = await import('../db/database.js');
   closeDb = database.closeDb;
   await database.initDb();
+  serverConfig = (await import('../config.js')).serverConfig;
+  renderLandingPage = (await import('../views/landing.js')).renderLandingPage;
   const { createApp: appFactory } = await import('../app.js');
   app = appFactory();
 });
@@ -853,5 +861,138 @@ describe('SecureX Platform API integration', () => {
     assert.equal(verify.status, 200);
     assert.equal(verify.body.data.credentialId, pub);
     assert.equal(verify.body.data.status, 'REVOKED');
+  });
+});
+/**
+ * The public landing page at GET / renders the same operational facts that
+ * /api/health reports, so these tests pin both the HTML surface and the
+ * invariant that the JSON health contract is untouched.
+ */
+describe('GET / landing page', () => {
+  test('returns 200 as HTML', async () => {
+    const res = await request(app).get('/');
+    assert.equal(res.status, 200);
+    assert.match(String(res.headers['content-type']), /text\/html/);
+  });
+
+  test('identifies the service and carries real status values', async () => {
+    const res = await request(app).get('/');
+    const html = res.text as string;
+
+    assert.ok(html.includes('SecureX API'), 'renders the service name');
+    assert.ok(
+      html.includes('Digital Credential Trust Network — Production API'),
+      'renders the product subtitle',
+    );
+    assert.ok(html.includes('SECUREX'), 'renders the brand');
+    assert.ok(html.includes('API / Trust Infrastructure'), 'renders the brand descriptor');
+    assert.ok(html.includes('System Status'), 'renders the status section');
+    assert.ok(html.includes('API Services'), 'renders the services section');
+
+    // Values must come from the live health payload, not be hardcoded.
+    const health = await (await request(app).get('/api/health')).body.data;
+    assert.ok(html.includes(health.version), 'shows the API version reported by /api/health');
+    assert.ok(
+      html.includes(health.dataMode.charAt(0).toUpperCase() + health.dataMode.slice(1)),
+      'shows the data mode reported by /api/health',
+    );
+    assert.ok(html.includes('PostgreSQL'), 'names the database technology');
+
+    // Connected database => the operational state is reported honestly.
+    assert.equal(health.database, 'connected');
+    assert.ok(html.includes('Operational'), 'reports the operational state');
+    assert.ok(html.includes('Connected'), 'reports the database state');
+  });
+
+  test('links to the real endpoints and neighbouring products', async () => {
+    const res = await request(app).get('/');
+    const html = res.text as string;
+
+    assert.ok(html.includes('/api/health'), 'links the health endpoint');
+    assert.ok(html.includes('https://app-securex.sp-net.in/'), 'links the application');
+    assert.ok(html.includes('https://securex.sp-net.in/'), 'links the website');
+
+    // API areas are limited to routes that are actually mounted.
+    for (const area of [
+      '/api/auth/login',
+      '/api/credentials',
+      '/api/verifications',
+      '/api/institutions',
+      '/api/blockchain',
+      '/api/network/stats',
+      '/api/admin',
+    ]) {
+      assert.ok(html.includes(area), `documents the mounted ${area} area`);
+    }
+  });
+
+  test('leaks no secrets and needs no client-side JavaScript', async () => {
+    const res = await request(app).get('/');
+    const html = res.text as string;
+
+    // The CSP is script-src 'self' with no unsafe-inline, so the page must be
+    // pure server-rendered HTML. No <script> means it renders with JS disabled.
+    assert.ok(!/<script/i.test(html), 'emits no script tags');
+    assert.ok(!/\son\w+=/i.test(html), 'emits no inline event handlers');
+
+    for (const forbidden of [
+      'postgres://',
+      serverConfig.jwtSecret,
+      serverConfig.databaseUrl,
+      serverConfig.bootstrapAdminEmail,
+      serverConfig.blockchainAuthToken,
+      'DATABASE_URL',
+      'JWT_SECRET',
+      'BOOTSTRAP_ADMIN',
+    ]) {
+      if (!forbidden) continue;
+      assert.ok(!html.includes(forbidden), `does not expose ${forbidden.slice(0, 24)}`);
+    }
+  });
+
+  test('refuses to reflect a crafted Host header', async () => {
+    const res = await request(app).get('/').set('Host', 'evil.example.com"><script>x</script>');
+    const html = res.text as string;
+    assert.equal(res.status, 200);
+    assert.ok(!html.includes('<script>x<'), 'does not reflect injected markup');
+    assert.ok(!html.includes('evil.example.com'), 'falls back to a safe base URL');
+  });
+
+  test('/api/health is unchanged and still JSON', async () => {
+    const res = await request(app).get('/api/health');
+    assert.equal(res.status, 200);
+    assert.match(String(res.headers['content-type']), /application\/json/);
+    assert.equal(res.body.success, true);
+    // Exact contract the frontend and the landing page both depend on.
+    assert.deepEqual(Object.keys(res.body.data).sort(), [
+      'dataMode',
+      'database',
+      'service',
+      'status',
+      'time',
+      'version',
+    ]);
+    assert.equal(res.body.data.status, 'ok');
+    assert.equal(res.body.data.service, 'securex-platform-api');
+    assert.equal(res.body.data.version, '1.0.0');
+  });
+
+  test('reports a degraded state when the database is unavailable', async () => {
+    const degraded = {
+      status: 'ok',
+      service: 'securex-platform-api',
+      version: serverConfig.apiVersion,
+      time: new Date().toISOString(),
+      dataMode: serverConfig.dataMode,
+      database: 'unavailable',
+    } as const;
+
+    const html = renderLandingPage(
+      { headers: { host: 'api-securex.sp-net.in' }, protocol: 'https' } as never,
+      degraded,
+    );
+
+    assert.ok(html.includes('Degraded'), 'does not claim Operational while the database is down');
+    assert.ok(html.includes('Unavailable'), 'reports the database as unavailable');
   });
 });
