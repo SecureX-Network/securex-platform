@@ -260,10 +260,12 @@ describe('explorer pages on the real (empty) chain', () => {
       const alerts = await screen.findAllByRole('alert', {}, { timeout: 15_000 });
       expect(alerts.length).toBeGreaterThan(0);
       const banner = alerts[0]!;
-      expect(banner).toHaveTextContent(/could not be reached/i);
-      // The copy is explicit that no figure stands in for the data it could
-      // not verify.
-      expect(banner).toHaveTextContent(/no network figures can be shown/i);
+
+      // A transport failure is the node being unreachable, not a fault in
+      // SecureX, so the Explorer says it is reconnecting rather than
+      // declaring the network down.
+      expect(banner).toHaveTextContent(/reconnecting to the blockchain node/i);
+      // Nothing is invented to fill the gap: no figures, no table.
       expect(screen.queryByRole('table')).not.toBeInTheDocument();
     },
     20_000,

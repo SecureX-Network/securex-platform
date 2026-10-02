@@ -43,25 +43,12 @@ import {
   Td,
   Th,
   TableRow,
-  type Tone,
 } from '../components/primitives';
-
-function statusTone(status: string | null, error: string | null): {
-  tone: Tone;
-  label: string;
-} {
-  if (error) return { tone: 'bad', label: 'Unavailable' };
-  if (!status) return { tone: 'neutral', label: 'Connecting' };
-  const upper = status.toUpperCase();
-  if (upper === 'RUNNING' || upper === 'UP') return { tone: 'ok', label: 'Operational' };
-  if (upper === 'DEGRADED') return { tone: 'warn', label: 'Degraded' };
-  return { tone: 'warn', label: status };
-}
 
 export default function OverviewPage() {
   const navigate = useNavigate();
   const chain = useExplorerChain();
-  const { data, status, error, loading, refreshing, reload, updatedAt } = chain;
+  const { data, status, connection, error, loading, refreshing, reload, updatedAt } = chain;
 
   const blocks = useChainResource<{ blocks: ExplorerBlockView[] }>(
     () => getBlocks(1, 5),
@@ -72,7 +59,10 @@ export default function OverviewPage() {
     { pollMs: 45_000 },
   );
 
-  const { tone, label } = statusTone(status?.status ?? null, error);
+  // The Explorer is explicit that the node is asleep rather than reporting an
+// outage it will recover from on its own. `title` carries the honest reason;
+  // `message` never implies data is missing when it is merely not re-read yet.
+  const { tone, label } = connection;
 
   // Every figure below comes from the API. `metrics` is best-effort, so its
   // absence is shown as "—" rather than defaulted to 0, which would read as a
@@ -105,10 +95,14 @@ export default function OverviewPage() {
         <div className="mb-6">
           <Card padded={false}>
             <ErrorPanel
+              title={connection.title ?? 'Blockchain service unavailable'}
               message={
-                error
-                  ? 'The SecureX Blockchain API could not be reached, so no network figures can be shown.'
-                  : 'Part of the chain data could not be loaded. Nothing is shown in place of it.'
+                connection.state === 'waking'
+                  ? (connection.detail ??
+                    'The SecureX Blockchain API is reconnecting to the blockchain node.')
+                  : error
+                    ? 'The SecureX Blockchain API could not be reached, so no network figures can be shown.'
+                    : 'Part of the chain data could not be loaded. Nothing is shown in place of it.'
               }
               onRetry={reload}
               retrying={refreshing}

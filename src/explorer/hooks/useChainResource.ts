@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { NotFoundError } from '../services/chainApi';
+import { NotFoundError, isTransientChainError } from '../services/chainApi';
 
 export interface ChainResource<T> {
   data: T | null;
@@ -13,8 +13,46 @@ export interface ChainResource<T> {
   notFound: boolean;
   /** When `data` was last successfully fetched. */
   updatedAt: Date | null;
-  /** Manual refresh. Always available, regardless of whether polling is on. */
+  /** Consecutive failed attempts in the current budget. */
+  attemptsMade: number;
+  /**
+   * Is the last failure the node being asleep rather than a real fault?
+   * A sleeping node is worth retrying quickly; a real fault is not.
+   */
+  transient: boolean;
+  /**
+   * Has the bounded retry budget been spent? Only true for transient failures —
+   * a genuine fault is reported immediately and never burns a retry budget.
+   */
+  exhausted: boolean;
+  /** Manual refresh. Always available, and always resets the retry budget. */
   reload: () => void;
+}
+
+/**
+ * Bounded recovery for a resource whose upstream sleeps.
+ *
+ * The ordinary poll backoff is right for steady state and wrong for recovery: it
+ * starts at the full poll interval (45s for the chain summary) and doubles from
+ * there, reaching fifteen minutes. Against a node that cold-starts in about
+ * twenty seconds, that means a visitor sits on a stale or broken-looking page
+ * long after the node is back — the recovery looks like an outage that never
+ * ends.
+ *
+ * This profile retries transient failures on a short, bounded ladder instead,
+ * and then *stops*. Stopping is the important half: a retry loop with no ceiling
+ * is just a way of keeping a struggling free-tier instance down, and it would
+ * also keep the Explorer claiming to be trying after it has stopped being able
+ * to do anything useful. Once the budget is spent the UI reports the failure
+ * honestly and waits for the visitor to ask again.
+ */
+export interface ChainRecoveryProfile {
+  /** Attempts before giving up on a transient failure. */
+  maxAttempts: number;
+  /** First recovery retry delay. */
+  baseDelayMs: number;
+  /** Ceiling for the recovery backoff. */
+  maxDelayMs: number;
 }
 
 export interface UseChainResourceOptions {
@@ -32,6 +70,14 @@ export interface UseChainResourceOptions {
   deps?: ReadonlyArray<unknown>;
   /** When false the resource is not fetched at all (e.g. no id in the route). */
   enabled?: boolean;
+  /**
+   * Bounded fast recovery for transient (infrastructural) failures.
+   *
+   * Omit this and the resource keeps the plain poll-and-back-off behaviour,
+   * which is correct for everything that does not sleep. Supply it for the
+   * chain summary, whose upstream is a free-tier node that suspends when idle.
+   */
+  recovery?: ChainRecoveryProfile;
 }
 
 /**
@@ -49,6 +95,26 @@ export interface UseChainResourceOptions {
 const MAX_POLL_BACKOFF_MS = 15 * 60_000;
 
 /**
+ * Default recovery ladder for a resource that is explicitly known to sleep.
+ *
+ * Tuned against the measured cold start (~22s) rather than guessed. The first
+ * three retries land inside that window at 2s / 4s / 8s, so a node that wakes
+ * normally is picked up almost as soon as it answers, and the ladder then runs
+ * out to 15s / 30s before finally reporting the failure rather than spinning
+ * forever.
+ *
+ * Applied only where `recovery` is passed. Every other resource keeps the plain
+ * poll-and-back-off behaviour, which is the right default for a lookup that
+ * does not have a sleeping upstream — retrying a detail page on a 2s ladder
+ * would be load for nothing.
+ */
+export const DEFAULT_RECOVERY: ChainRecoveryProfile = {
+  maxAttempts: 5,
+  baseDelayMs: 2000,
+  maxDelayMs: 30_000,
+};
+
+/**
  * Loads a read-only chain resource and exposes the states a public explorer must
  * distinguish: loading, loaded, and failed.
  *
@@ -61,7 +127,7 @@ export function useChainResource<T>(
   loader: () => Promise<T>,
   options: UseChainResourceOptions = {},
 ): ChainResource<T> {
-  const { pollMs = 0, deps = [], enabled = true } = options;
+  const { pollMs = 0, deps = [], enabled = true, recovery } = options;
 
   // A stable key for the dependency list. Spreading a variable-length array into
   // a useEffect dependency list is fragile, so the values are serialised instead.
@@ -73,6 +139,8 @@ export function useChainResource<T>(
   const [loading, setLoading] = useState(enabled);
   const [refreshing, setRefreshing] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [attemptsMade, setAttemptsMade] = useState(0);
+  const [transient, setTransient] = useState(false);
 
   const requestIdRef = useRef(0);
   const mountedRef = useRef(true);
@@ -80,10 +148,26 @@ export function useChainResource<T>(
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
 
-  // Consecutive failed attempts, used only to slow the poll timer down. A ref
-  // rather than state: the timer must not be torn down and rescheduled on every
-  // state change.
+  // Consecutive failed attempts, used to slow the poll timer down and to drive
+  // the bounded recovery ladder. A ref rather than state: the timer must not be
+  // torn down and rescheduled on every state change, so the mirrors below exist
+  // purely for rendering.
   const consecutiveFailuresRef = useRef(0);
+  const transientRef = useRef(false);
+  // Bumped whenever an attempt finishes, so the polling effect re-schedules on
+  // the correct rung of the ladder immediately. Without this the timer would be
+  // armed once at mount on the success rung and then keep firing at the plain
+  // poll interval, which would leave a visitor who loads the page while the
+  // node is asleep staring at "Waking" for a full poll interval before the first
+  // recovery retry actually happened.
+  const [scheduleNonce, setScheduleNonce] = useState(0);
+
+  const resetBudget = useCallback(() => {
+    consecutiveFailuresRef.current = 0;
+    transientRef.current = false;
+    setAttemptsMade(0);
+    setTransient(false);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -117,7 +201,10 @@ export function useChainResource<T>(
         setData(result);
         setNotFound(false);
         setUpdatedAt(new Date());
-        consecutiveFailuresRef.current = 0;
+        resetBudget();
+        // A success means the next poll should be a normal one, not the tail of
+        // a recovery ladder.
+        setScheduleNonce((n) => n + 1);
       } catch (caught) {
         if (!mountedRef.current || requestIdRef.current !== requestId) return;
         // A definitive "does not exist" is an answer, not a service failure, so
@@ -126,14 +213,21 @@ export function useChainResource<T>(
           hasDataRef.current = false;
           setNotFound(true);
           setData(null);
-          consecutiveFailuresRef.current = 0;
+          resetBudget();
         } else {
           consecutiveFailuresRef.current += 1;
+          const isTransient = isTransientChainError(caught);
+          transientRef.current = isTransient;
+          setAttemptsMade(consecutiveFailuresRef.current);
+          setTransient(isTransient);
           setError(
             caught instanceof Error
               ? caught.message
               : 'The blockchain service could not be reached.',
           );
+          // Re-arm on the rung this failure earned, not the one the mount-time
+          // timer happened to be armed with.
+          setScheduleNonce((n) => n + 1);
         }
       } finally {
         if (mountedRef.current && requestIdRef.current === requestId) {
@@ -142,7 +236,7 @@ export function useChainResource<T>(
         }
       }
     },
-    [enabled],
+    [enabled, resetBudget],
   );
 
   // Initial load, and a reload whenever the route inputs change.
@@ -154,21 +248,45 @@ export function useChainResource<T>(
     void run(true);
   }, [enabled, depsKey, run]);
 
-  // Conservative polling, paused while the tab is hidden and backed off while
-  // the upstream is failing.
+  // Conservative polling, paused while the tab is hidden, backed off while the
+  // upstream is failing, and retried on a short bounded ladder when the upstream
+  // is merely asleep.
   useEffect(() => {
     if (!enabled || pollMs <= 0) return;
 
     let timer = 0;
+    // Set when the retry budget is spent and the timer has been retired on
+    // purpose, so the visibility handler knows not to silently restart it.
+    let parked = false;
 
     const schedule = () => {
       const failures = consecutiveFailuresRef.current;
-      // One failed attempt retries at the normal interval; each further
-      // consecutive failure doubles the wait.
-      const wait =
-        failures === 0
-          ? pollMs
-          : Math.min(pollMs * 2 ** (failures - 1), MAX_POLL_BACKOFF_MS);
+      const spentBudget =
+        recovery !== undefined &&
+        transientRef.current &&
+        failures >= recovery.maxAttempts;
+
+      if (spentBudget) {
+        // Deliberately stop. The ladder is over, and continuing to poll would
+        // mean claiming to be trying after we have decided there is no point.
+        // `reload()` restarts the budget when the visitor asks.
+        parked = true;
+        return;
+      }
+
+      let wait: number;
+      if (recovery && transientRef.current && failures > 0) {
+        // The node is asleep rather than broken: recover on the short ladder.
+        wait = Math.min(recovery.baseDelayMs * 2 ** (failures - 1), recovery.maxDelayMs);
+      } else if (failures === 0) {
+        wait = pollMs;
+      } else {
+        // A genuine fault, or a resource with no recovery profile. Back off as
+        // before.
+        wait = Math.min(pollMs * 2 ** (failures - 1), MAX_POLL_BACKOFF_MS);
+      }
+
+      parked = false;
       timer = window.setTimeout(() => {
         if (typeof document !== 'undefined' && document.hidden) {
           // Hidden tab: skip the request but keep the timer alive.
@@ -183,9 +301,16 @@ export function useChainResource<T>(
 
     const onVisible = () => {
       if (document.hidden) return;
+      window.clearTimeout(timer);
+      if (parked) {
+        // Budget spent while hidden: do not quietly restart. Re-entering the
+        // visible state is not a decision to retry, and a dozen tabs all waking
+        // the same cold node at once is exactly the load it cannot absorb.
+        // The honest state stays put until the visitor presses Retry.
+        return;
+      }
       // A returning visitor should get current data at once, not after waiting
       // out a backoff window.
-      window.clearTimeout(timer);
       void run(false).finally(schedule);
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -194,7 +319,13 @@ export function useChainResource<T>(
       window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [enabled, pollMs, run]);
+  }, [enabled, pollMs, recovery, run, scheduleNonce]);
+
+  // Exhaustion is derived, not stored: only a transient failure can exhaust the
+  // budget, and it is spent exactly when the failure count reaches the ceiling.
+  // A resource with no recovery profile can never exhaust one.
+  const exhausted =
+    recovery !== undefined && transient && attemptsMade >= recovery.maxAttempts;
 
   return {
     data,
@@ -203,7 +334,13 @@ export function useChainResource<T>(
     refreshing,
     notFound,
     updatedAt,
+    attemptsMade,
+    transient,
+    exhausted,
     reload: () => {
+      // A manual reload is a request from the visitor to try again, so it starts
+      // a fresh bounded cycle rather than inheriting an exhausted one.
+      resetBudget();
       void run(false);
     },
   };

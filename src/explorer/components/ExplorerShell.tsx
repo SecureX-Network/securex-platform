@@ -5,8 +5,9 @@ import { classNames } from '@/utils';
 import { classifySearchQuery } from '../services/chainApi';
 import { explorerRoutes } from '../utils/format';
 import { useExplorerChain } from '../providers/chainContext';
+import type { ChainConnection } from '../providers/chainConnection';
 import { ThemeToggle } from '../theme/ThemeToggle';
-import { Badge, ExplorerButton, RefreshButton, type Tone } from './primitives';
+import { Badge, ExplorerButton, RefreshButton } from './primitives';
 
 const NAV_ITEMS = [
   { to: explorerRoutes.overview, label: 'Overview', icon: Boxes, end: true },
@@ -27,28 +28,56 @@ const NAV_ITEMS = [
 ];
 
 /**
- * "Operational" is shown only when the API actually reports a reachable node.
- * An error never renders as healthy, and a healthy node with no activity is
- * reported as such rather than dressed up.
+ * Connection state is derived in `chainConnection.ts` and consumed here verbatim.
+ *
+ * This used to collapse everything into "Operational" / "Connecting" /
+ * "Unavailable", which made a free-tier node that was merely asleep look exactly
+ * like a broken network. The fourth state, `Waking`, is what lets the header
+ * tell a visitor "the node is starting up" instead of "SecureX is down".
+ *
+ * The badge never invents health: `operational` is only reachable once a real
+ * health request has succeeded.
  */
-function statusPresentation(
-  error: string | null,
-  status: string | null,
-): { tone: Tone; label: string } {
-  if (error) return { tone: 'bad', label: 'Unavailable' };
-  if (!status) return { tone: 'neutral', label: 'Connecting' };
-  const upper = status.toUpperCase();
-  if (upper === 'RUNNING' || upper === 'UP') return { tone: 'ok', label: 'Operational' };
-  if (upper === 'DEGRADED') return { tone: 'warn', label: 'Degraded' };
-  return { tone: 'warn', label: status };
+function ConnectionBanner({
+  connection,
+  onRetry,
+}: {
+  connection: ChainConnection;
+  onRetry: () => void;
+}) {
+  if (!connection.title) return null;
+
+  return (
+    <div
+      className="border-b border-explorer-border bg-explorer-raised/60"
+      data-testid="chain-connection-banner"
+      role="status"
+    >
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-explorer-text">{connection.title}</p>
+          {connection.detail && (
+            <p className="mt-0.5 text-xs text-explorer-subtext">{connection.detail}</p>
+          )}
+        </div>
+        {/* The retry is always offered, and it always starts a fresh bounded
+            cycle — including after the ladder has been spent. */}
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-explorer-line bg-explorer-surface px-3 text-xs font-semibold text-explorer-text transition-colors hover:border-explorer-accent hover:text-explorer-accent-text"
+        >
+          Retry now
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function ExplorerShell({ children }: { children: ReactNode }) {
-  const { status, error, refreshing, reload } = useExplorerChain();
+  const { connection, refreshing, reload } = useExplorerChain();
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
-
-  const { tone, label } = statusPresentation(error, status?.status ?? null);
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -97,8 +126,8 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
                   SecureX App
                 </a>
                 <span className="hidden sm:block" data-testid="network-status-badge">
-                  <Badge tone={tone} dot>
-                    {label}
+                  <Badge tone={connection.tone} dot>
+                    {connection.label}
                   </Badge>
                 </span>
                 <RefreshButton onClick={reload} refreshing={refreshing} />
@@ -167,6 +196,8 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
             </nav>
           </div>
         </header>
+
+        <ConnectionBanner connection={connection} onRetry={reload} />
 
         <main className="explorer-page flex-1">{children}</main>
 

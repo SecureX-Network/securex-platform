@@ -98,6 +98,38 @@ export class NotFoundError extends Error {
 }
 
 /**
+ * Is this failure the node being *asleep*, rather than something being wrong?
+ *
+ * Both the Platform API and the blockchain node run on Render's free plan, so
+ * the single most common failure is infrastructural rather than a fault: a
+ * suspended instance answers 429/502/503/504 while it cold-starts (~22s
+ * measured), and the Platform API — which retries upstream for up to
+ * `BLOCKCHAIN_TIMEOUT_MS` — eventually surfaces that to us as a 502.
+ *
+ * Those deserve a very different response from a real fault:
+ *
+ *   transient  -> the node is waking; retry patiently and say so honestly
+ *   genuine    -> retrying is pointless and only adds load; say it failed
+ *
+ * The distinction is what stops the Explorer from hammering a node that is
+ * already struggling, and from telling a visitor the network is broken when it
+ * is merely asleep.
+ *
+ * `ApiError.status === 0` is this client's own timeout or a transport failure
+ * (see `requestJson`), so the request's fate is genuinely unknown — treated as
+ * transient for the same reason.
+ */
+export function isTransientChainError(error: unknown): boolean {
+  if (error instanceof NotFoundError) return false;
+  if (error instanceof ApiError) {
+    return error.status === 0 || error.status === 429 || error.status === 502 || error.status === 503 || error.status === 504;
+  }
+  // A raw transport error that never became an ApiError is, by definition, not
+  // an answer from the service.
+  return error instanceof TypeError || error instanceof Error;
+}
+
+/**
  * Fail closed if this bundle was ever built in DEMO mode.
  *
  * `src/config/index.ts` already fails closed to REAL unless VITE_USE_MOCK is the
@@ -163,6 +195,18 @@ export function getChainMetrics(): Promise<ChainMetricsDto> {
  * `metrics` is best-effort: it carries the protocol/node versions and the
  * active-validator split, but a metrics hiccup must not blank out the whole
  * page when health and network status are both readable.
+ *
+ * HEALTH IS FETCHED FIRST, ALONE, ON PURPOSE.
+ *
+ * A page load used to fan out to health + network + state together, so every
+ * attempt while the node was asleep cost four requests, each of which the
+ * Platform API then retried upstream up to eight times. During a cold start
+ * that is ~32 upstream requests per load, from every open tab — enough to keep
+ * a struggling free instance struggling.
+ *
+ * Probing health first means a failing cycle costs ONE request, and the node is
+ * only asked for the rest of the summary once it has actually answered. When
+ * the node is healthy the extra round trip is a few tens of milliseconds.
  */
 export interface ChainSummary {
   health: ChainHealthDto | null;
@@ -172,14 +216,11 @@ export interface ChainSummary {
 }
 
 export async function getChainSummary(): Promise<ChainSummary> {
-  // Health, network and state are the required reads: a failure in any of them
-  // is the "blockchain service unavailable" case the UI must surface.
-  const [health, network, state] = await Promise.all([
-    getChainHealth(),
-    getChainNetwork(),
-    getChainState(),
-  ]);
-  // Metrics and a validator count are enrichments.
+  // The single gate: if the node cannot answer a health probe it is asleep, and
+  // nothing else is worth asking for.
+  const health = await getChainHealth();
+
+  const [network, state] = await Promise.all([getChainNetwork(), getChainState()]);
   const metrics = await getChainMetrics().catch(() => null);
   return { health, network, state, metrics };
 }

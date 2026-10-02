@@ -535,17 +535,28 @@ describe('Explorer header', () => {
 
     // An unreachable chain must not take the shell down with it. The badge is
     // honest in the meantime — "Connecting", never a false "Operational" — and
-    // only settles on "Unavailable" once the read has genuinely failed.
+    // then says what is actually happening: the node is asleep and SecureX is
+    // retrying, which is "Waking" rather than an outage.
     expect(screen.getByText('SECUREX')).toBeInTheDocument();
     expect(screen.getByText('content')).toBeInTheDocument();
     expect(screen.getByTestId('network-status-badge')).toHaveTextContent(/connecting/i);
 
-    // chainApi retries a transport failure twice before giving up.
+    // The failure is infrastructural, so the bounded recovery ladder is running
+    // rather than the UI declaring the network down.
     await waitFor(
       () =>
-        expect(screen.getByTestId('network-status-badge')).toHaveTextContent(/unavailable/i),
+        expect(screen.getByTestId('network-status-badge')).toHaveTextContent(/waking/i),
       { timeout: 8000 },
     );
+
+    // Never a false "Operational", at any point in that recovery.
+    expect(screen.getByTestId('network-status-badge')).not.toHaveTextContent(/operational/i);
+
+    // And the visitor is told the truth about why, rather than being left to
+    // assume SecureX itself is broken.
+    const banner = screen.getByTestId('chain-connection-banner');
+    expect(banner).toHaveTextContent(/waking up/i);
+    expect(banner).toHaveTextContent(/free hosting tier/i);
   });
 });
 
