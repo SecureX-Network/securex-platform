@@ -90,8 +90,93 @@ function extractErrorText(body: unknown): { message?: string; code?: string } {
 
 let warnedAboutMissingToken = false;
 
+/**
+ * Upstream statuses that mean "try again shortly", not "you did it wrong".
+ *
+ * The SecureX Blockchain service runs on Render. A FREE-plan instance is
+ * suspended after 15 minutes without inbound traffic, and Render's edge answers
+ * requests that arrive while the instance is suspended or still spinning up
+ * with 429 / 502 / 503 / 504 rather than waiting for it. A cold start that has
+ * to provision keys and re-create the genesis block takes ~20-25s.
+ *
+ * None of these statuses indicate a bad request or a rejected credential, so
+ * they are retried. 4xx statuses that DO describe the request itself (400, 401,
+ * 403, 404, 409, 422) are never retried — retrying them only wastes the caller's
+ * deadline and, for 401/403, hides a genuine credential problem behind noise.
+ */
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+
+/**
+ * Total wall-clock budget for one logical blockchain operation, shared across
+ * every attempt. Attempts are never allowed to outlive it, so adding retries
+ * cannot extend the request beyond the configured BLOCKCHAIN_TIMEOUT_MS.
+ */
+const RETRY_BUDGET_PADDING_MS = 250;
+
+/**
+ * Retry window sizing.
+ *
+ * These are chosen against the measured cold start: a suspended free instance
+ * takes ~20-25s to provision keys, re-create the genesis block and begin
+ * serving, and BLOCKCHAIN_TIMEOUT_MS is 60s.
+ *
+ * The ceilings are 3s, 6s, 8s, 8s, 8s, 8s, 8s. Because jitter only takes the top
+ * half of each window, the operation is guaranteed to keep retrying for at least
+ * ~25s and typically ~37s — comfortably longer than a spin-up, and still well
+ * inside the caller's 60s budget (the deadline check below enforces that even if
+ * these numbers are ever changed).
+ *
+ * This is a mitigation, not a substitute for the infrastructure fix: a paid
+ * instance that never suspends is the real remedy. Retrying stops a suspended
+ * instance from reading as an outage in the meantime, and each attempt costs one
+ * request rather than failing the caller's whole operation immediately.
+ */
+const MAX_ATTEMPTS = 8;
+const RETRY_BASE_DELAY_MS = 3000;
+const RETRY_MAX_DELAY_MS = 8000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Exponential backoff with jitter over the TOP half of each window.
+ *
+ * Jitter matters here specifically: the Platform API sends several blockchain
+ * calls concurrently (a single Explorer page load fans out to /health, /state,
+ * /network and /metrics). Without jitter they would all retry in lockstep after a
+ * shared cold start and hammer the instance the instant it finished booting.
+ *
+ * Jittering only the top half, rather than the whole window (full jitter), keeps
+ * a guaranteed minimum wait: full jitter would halve the expected time spent
+ * retrying, which is not enough to ride out a ~23s spin-up.
+ */
+function backoffDelay(attempt: number): number {
+  const ceiling = Math.min(RETRY_BASE_DELAY_MS * 2 ** attempt, RETRY_MAX_DELAY_MS);
+  const floor = Math.ceil(ceiling / 2);
+  return floor + Math.floor(Math.random() * (ceiling - floor + 1));
+}
+
+/** Seconds to wait, from a `Retry-After` header when the upstream supplied one. */
+function retryAfterMs(response: Response): number | null {
+  const raw = response.headers.get('retry-after');
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, RETRY_MAX_DELAY_MS);
+  }
+  const at = Date.parse(raw);
+  if (Number.isFinite(at)) {
+    return Math.max(0, Math.min(at - Date.now(), RETRY_MAX_DELAY_MS));
+  }
+  return null;
+}
+
 /** Centralized, timeout-bounded HTTP call to the blockchain service. */
-async function request<T>(options: RequestOptions): Promise<BlockchainResult<T>> {
+async function request<T>(
+  options: RequestOptions,
+  attempt = 0,
+): Promise<BlockchainResult<T>> {
   if (!serverConfig.blockchainApiUrl) {
     return {
       ok: false,
@@ -121,8 +206,10 @@ async function request<T>(options: RequestOptions): Promise<BlockchainResult<T>>
     };
   }
 
-  const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? serverConfig.blockchainTimeoutMs;
+  const deadline = Date.now() + timeoutMs - RETRY_BUDGET_PADDING_MS;
+
+  const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -142,6 +229,24 @@ async function request<T>(options: RequestOptions): Promise<BlockchainResult<T>>
 
     if (!response.ok) {
       const { message, code } = extractErrorText(payload);
+
+      // A suspended or spinning-up free instance answers 429/5xx. Wait it out
+      // within the caller's existing deadline instead of failing immediately.
+      if (RETRYABLE_STATUSES.has(response.status) && attempt + 1 < MAX_ATTEMPTS) {
+        const wait = retryAfterMs(response) ?? backoffDelay(attempt);
+        if (Date.now() + wait < deadline) {
+          clearTimeout(timer);
+          logger.warn('blockchain.upstream_retry', {
+            path: options.path,
+            status: response.status,
+            attempt: attempt + 1,
+            waitMs: wait,
+          });
+          await sleep(wait);
+          return request<T>(options, attempt + 1);
+        }
+      }
+
       return {
         ok: false,
         error: {
@@ -201,6 +306,25 @@ async function request<T>(options: RequestOptions): Promise<BlockchainResult<T>>
         error: { code: 'TIMEOUT', message: `The blockchain service did not respond within ${timeoutMs}ms.` },
       };
     }
+
+    // A suspended free instance can also refuse the TCP connection outright
+    // rather than answering with a status. That is the same transient condition,
+    // so it gets the same bounded retry.
+    if (attempt + 1 < MAX_ATTEMPTS) {
+      const wait = backoffDelay(attempt);
+      if (Date.now() + wait < deadline) {
+        clearTimeout(timer);
+        logger.warn('blockchain.upstream_retry', {
+          path: options.path,
+          status: 'UNREACHABLE',
+          attempt: attempt + 1,
+          waitMs: wait,
+        });
+        await sleep(wait);
+        return request<T>(options, attempt + 1);
+      }
+    }
+
     return {
       ok: false,
       error: { code: 'UNREACHABLE', message: 'The blockchain service could not be reached.' },
