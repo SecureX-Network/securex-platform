@@ -269,3 +269,39 @@ describe('explorer pages on the real (empty) chain', () => {
     20_000,
   );
 });
+
+/**
+ * The theme layer and the data layer are independent, and that is the point:
+ * a restyle must never be able to change a number. These run the real Overview
+ * in each theme and assert the same chain readings come back.
+ */
+describe('chain data is identical in both themes', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => routeApi(String(input))),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+    document.documentElement.className = '';
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    it(`shows the same real chain state in ${theme}`, async () => {
+      window.localStorage.setItem('securex-explorer-theme', theme);
+
+      renderPage(<OverviewPage />);
+
+      expect((await screen.findAllByText('Operational')).length).toBeGreaterThan(0);
+      await waitFor(() => expect(statByLabel('Block Height')).toHaveTextContent('0'));
+      expect(statByLabel('Peers')).toHaveTextContent('0');
+      expect(statByLabel('Transactions')).toHaveTextContent('0');
+      expect(statByLabel('Protocol Version')).toHaveTextContent('2.0');
+      expect(statByLabel('Node Version')).toHaveTextContent('3.0.0');
+      expect(statByLabel('Validators', 'p')).toHaveTextContent('1/1');
+    });
+  }
+});

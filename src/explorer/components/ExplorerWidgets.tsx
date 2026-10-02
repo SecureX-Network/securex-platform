@@ -36,7 +36,7 @@ export function PageHeader({
                 {crumb.to ? (
                   <Link
                     to={crumb.to}
-                    className="transition-colors hover:text-explorer-accent"
+                    className="transition-colors hover:text-explorer-accent-text"
                   >
                     {crumb.label}
                   </Link>
@@ -84,8 +84,8 @@ export function StatCard({
   accent?: 'blue' | 'purple' | 'neutral';
 }) {
   const accents = {
-    blue: 'text-blue-400 border-explorer-accent/25 bg-explorer-accent/10',
-    purple: 'text-purple-400 border-explorer-accent-alt/25 bg-explorer-accent-alt/10',
+    blue: 'text-explorer-accent-text border-explorer-accent/25 bg-explorer-accent/10',
+    purple: 'text-explorer-accent-alt-text border-explorer-accent-alt/25 bg-explorer-accent-alt/10',
     neutral: 'text-explorer-subtext border-explorer-border bg-explorer-raised',
   } as const;
 

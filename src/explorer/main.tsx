@@ -9,12 +9,17 @@ import './styles/explorer.css';
 //
 // A separate mount from the SecureX application (`src/main.tsx`). This file is
 // the only entry the dedicated Explorer build loads, which is what guarantees
-// the Explorer's router and dark theme can never be pulled into
+// the Explorer's router and bundle can never be pulled into
 // app-securex.sp-net.in.
+//
+// Theme note: the light/dark theme is applied by a tiny inline script in
+// explorer/index.html *before* React boots, so there is no flash of the wrong
+// theme. React only takes over the state afterwards, via `useTheme`. See
+// src/explorer/theme/theme.ts for the resolution rules.
 //
 // Deliberately absent, compared with the application entry:
 //   * no AuthProvider — the Explorer is public and has no accounts
-//   * no theme provider, no session restore, no toaster
+//   * no session restore, no toaster
 //   * no mock/demo bootstrap
 // ---------------------------------------------------------------------------
 

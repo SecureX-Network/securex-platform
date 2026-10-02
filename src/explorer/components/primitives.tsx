@@ -5,14 +5,22 @@ import { classNames } from '@/utils';
 import { truncateHash } from '../utils/format';
 
 // ---------------------------------------------------------------------------
-// SECUREX BLOCKCHAIN EXPLORER — DARK UI PRIMITIVES
+// SECUREX BLOCKCHAIN EXPLORER — UI PRIMITIVES
 //
-// The application's shared UI kit (`@/components/ui`) is built for the
-// SecureX light theme — white surfaces and slate text — and its base classes
-// cannot be reliably overridden on a #050505 background. The Explorer therefore
-// carries its own small primitive set, styled from the same design language
-// (rounded cards, soft borders, restrained accents) on the Explorer's dark
-// palette. Icons and `classNames` are still shared.
+// Built from the SecureX design language (0.5rem radii, soft 1px borders,
+// restrained accent usage, Inter + JetBrains Mono) but scoped to the Explorer's
+// own token set so it can render correctly in both themes.
+//
+// Colours are never hard-coded here. Every surface, border and tone resolves
+// through the `explorer-*` / `ok` / `warn` / `bad` / `info` tokens, which are
+// CSS custom properties switched by the `dark-theme` class on <html> — the same
+// convention `src/styles/globals.css` uses for the application. That means a
+// theme change is one class on one element, with no re-render of this tree.
+//
+// The application's shared UI kit (`@/components/ui`) is deliberately NOT used
+// here: its base classes hard-code white surfaces and slate text, which cannot
+// be reliably overridden on the Explorer's dark palette. `classNames` and the
+// Lucide icon set are still shared.
 // ---------------------------------------------------------------------------
 
 // ── Card ─────────────────────────────────────────────────────────────────────
@@ -54,7 +62,7 @@ export function CardHeader({
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="flex min-w-0 items-start gap-2.5">
         {icon && (
-          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-explorer-border bg-explorer-raised text-explorer-accent">
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-explorer-border bg-explorer-raised text-explorer-accent-text">
             {icon}
           </span>
         )}
@@ -99,9 +107,9 @@ export function ExplorerButton({
 }) {
   const tones: Record<ButtonTone, string> = {
     primary:
-      'bg-explorer-accent text-white hover:bg-blue-500 border border-explorer-accent',
+      'bg-explorer-accent-solid text-explorer-on-accent hover:bg-explorer-accent-solid-hover border border-explorer-accent-solid',
     outline:
-      'border border-explorer-line bg-explorer-raised text-explorer-text hover:border-explorer-accent hover:text-white',
+      'border border-explorer-line bg-explorer-raised text-explorer-text hover:border-explorer-accent hover:text-explorer-text',
     ghost: 'border border-transparent text-explorer-subtext hover:text-explorer-text hover:bg-explorer-raised',
   };
 
@@ -147,11 +155,15 @@ export function RefreshButton({
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral';
 
+// Surfaces and borders use the tone colour at low opacity, which keeps a single
+// tinted look in both themes; the `*-text` foreground is the per-theme step
+// chosen to stay legible on that tint (a dark green on light, a light green on
+// dark). Using one shade for both roles is what makes a badge disappear.
 const toneClasses: Record<Tone, string> = {
-  ok: 'border-trust-500/30 bg-trust-500/10 text-trust-400',
-  warn: 'border-warning-500/30 bg-warning-500/10 text-warning-400',
-  bad: 'border-danger-500/30 bg-danger-500/10 text-danger-400',
-  info: 'border-explorer-accent/30 bg-explorer-accent/10 text-blue-400',
+  ok: 'border-ok/30 bg-ok/10 text-ok-text',
+  warn: 'border-warn/30 bg-warn/10 text-warn-text',
+  bad: 'border-bad/30 bg-bad/10 text-bad-text',
+  info: 'border-info/30 bg-info/10 text-info-text',
   neutral: 'border-explorer-line bg-explorer-raised text-explorer-subtext',
 };
 
@@ -212,10 +224,10 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
       onClick={copy}
       aria-label={copied ? `${label} copied` : `Copy ${label}`}
       title={copied ? 'Copied' : `Copy ${label}`}
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-explorer-line bg-explorer-raised text-explorer-faint transition-colors hover:border-explorer-accent hover:text-explorer-accent"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-explorer-line bg-explorer-raised text-explorer-faint transition-colors hover:border-explorer-accent hover:text-explorer-accent-text"
     >
       {copied ? (
-        <Check aria-hidden="true" className="h-3 w-3 text-trust-400" />
+        <Check aria-hidden="true" className="h-3 w-3 text-ok-text" />
       ) : (
         <Copy aria-hidden="true" className="h-3 w-3" />
       )}
@@ -315,7 +327,7 @@ export function LoadingPanel({ label = 'Loading chain data' }: { label?: string 
       <svg
         aria-hidden="true"
         viewBox="0 0 24 24"
-        className="explorer-spin h-6 w-6 text-explorer-accent"
+        className="explorer-spin h-6 w-6 text-explorer-accent-text"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
@@ -376,7 +388,7 @@ export function ErrorPanel({
       role="alert"
       className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center"
     >
-      <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-danger-500/30 bg-danger-500/10 text-danger-400">
+      <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-bad/30 bg-bad/10 text-bad-text">
         <svg
           aria-hidden="true"
           viewBox="0 0 24 24"
@@ -413,16 +425,16 @@ export function StaleDataNotice({ message, onRetry }: { message: string; onRetry
   return (
     <div
       role="status"
-      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning-500/30 bg-warning-500/10 px-4 py-3"
+      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/10 px-4 py-3"
     >
-      <p className="text-xs leading-relaxed text-warning-300">
+      <p className="text-xs leading-relaxed text-warn-text">
         {message} Showing the last data that was successfully read.
       </p>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="text-xs font-semibold text-warning-200 underline underline-offset-4 hover:text-white"
+          className="text-xs font-semibold text-warn-text underline underline-offset-4 hover:text-explorer-text"
         >
           Retry now
         </button>

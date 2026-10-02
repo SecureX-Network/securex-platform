@@ -60,8 +60,8 @@ export default function NetworkPage() {
       )}
 
       {error && status && (
-        <div className="mb-6 rounded-xl border border-warning-500/30 bg-warning-500/10 px-4 py-3">
-          <p className="text-xs text-warning-300">
+        <div className="mb-6 rounded-xl border border-warn/30 bg-warn/10 px-4 py-3">
+          <p className="text-xs text-warn-text">
             The latest refresh failed. Showing the last data that was successfully
             read.
           </p>
@@ -264,7 +264,7 @@ export default function NetworkPage() {
         SecureX does not report throughput or average block time, and this page
         does not estimate them. Fields the node does not publish are shown as
         “—”.{' '}
-        <Link to={explorerRoutes.overview} className="text-explorer-accent hover:underline">
+        <Link to={explorerRoutes.overview} className="text-explorer-accent-text hover:underline">
           Back to overview
         </Link>
       </p>

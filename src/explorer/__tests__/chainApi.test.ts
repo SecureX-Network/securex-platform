@@ -169,6 +169,30 @@ describe('explorer chainApi (REAL mode)', () => {
     }
   });
 
+  it('never touches the seeded PostgreSQL endpoints, even though they look plausible', async () => {
+    const { getChainSummary, getBlocks, getRecentTransactions, getValidators, getPeers } =
+      await loadRealModule();
+
+    await getChainSummary();
+    await getBlocks(1, 5);
+    await getRecentTransactions(1, 5);
+    await getValidators();
+    await getPeers();
+
+    // These three return synthetic rows written once by server/db/seed.ts
+    // (22 blocks / 38 transactions) and hardcoded telemetry (nodesOnline: 42,
+    // tps: 128). They are a real hazard precisely because they would render a
+    // convincing page, so their exclusion is pinned explicitly rather than left
+    // to the prefix check above.
+    const excluded = ['/api/blocks', '/api/transactions', '/api/network/stats'];
+    for (const call of fetchMock.mock.calls) {
+      const url = String(call[0]);
+      for (const path of excluded) {
+        expect(url.includes(path), `${path} must never be used as chain state`).toBe(false);
+      }
+    }
+  });
+
   it('never requests a write, admin, credential, issuer or QR endpoint', async () => {
     const { getChainSummary, getBlocks, getValidators } = await loadRealModule();
     await getChainSummary();

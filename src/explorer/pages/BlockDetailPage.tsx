@@ -61,7 +61,7 @@ export default function BlockDetailPage() {
             action={
               <Link
                 to={explorerRoutes.blocks}
-                className="text-sm font-medium text-explorer-accent hover:text-blue-300"
+                className="text-sm font-medium text-explorer-accent-text hover:text-explorer-accent-text-hover"
               >
                 Browse all blocks
               </Link>
@@ -106,7 +106,7 @@ export default function BlockDetailPage() {
             action={
               <Link
                 to={explorerRoutes.blocks}
-                className="text-sm font-medium text-explorer-accent hover:text-blue-300"
+                className="text-sm font-medium text-explorer-accent-text hover:text-explorer-accent-text-hover"
               >
                 Browse all blocks
               </Link>
@@ -185,7 +185,7 @@ export default function BlockDetailPage() {
                     <span className="inline-flex items-start gap-2">
                       <Link
                         to={explorerRoutes.block(Math.max(0, block.height - 1))}
-                        className="break-all font-mono text-[0.8125rem] text-explorer-accent hover:underline"
+                        className="break-all font-mono text-[0.8125rem] text-explorer-accent-text hover:underline"
                       >
                         {block.previousHash}
                       </Link>

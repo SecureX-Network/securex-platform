@@ -3,57 +3,204 @@
 @tailwind utilities;
 
 /* ==========================================================================
-   SECUREX BLOCKCHAIN EXPLORER — DARK TECHNICAL THEME
+   SECUREX BLOCKCHAIN EXPLORER — LIGHT + DARK THEMES
 
    Loaded ONLY by src/explorer/main.tsx. The SecureX application imports
-   styles/globals.css (a light theme) instead, so nothing here can affect
+   styles/globals.css instead, so nothing here can affect
    app-securex.sp-net.in.
 
-   Palette (fixed by product design):
+   DESIGN LANGUAGE — this is the SecureX product, not a separate identity.
+   The values below are lifted from the application so the Explorer reads as a
+   native part of it:
+
+     application light body   #f8fafc   ->  --x-bg
+     application white card   #ffffff   ->  --x-surface
+     application dark card    #0f172a   ->  mirrored by --x-surface in dark
+     application neutral-200  #e2e8f0   ->  --x-border / --x-line
+     application neutral-500  #64748b   ->  --x-faint
+     application --color-primary #1558f5 ->  --x-accent-solid
+     application radius        0.5rem   ->  rounded-securex (shared Tailwind)
+     application focus ring    #2d7bff  ->  --x-focus
+     application Inter / JetBrains Mono -> font-sans / font-mono (shared)
+
+   The generic component recipes below (`.explorer-page`, `.tech-value`,
+   `.explorer-shimmer-host`, the entrance animations, the reduced-motion block)
+   mirror the `@layer components` section of `src/styles/globals.css` one for
+   one, so both surfaces behave the same way.
+
+   THEMING — the Explorer follows the same convention as the application:
+   light is the DEFAULT and dark is opted into by the `dark-theme` class on
+   <html>. Every colour is a custom property, so a theme switch is one class on
+   one element rather than a re-render or a duplicated stylesheet.
+
+   Brand accents (fixed by product design, identical in both themes):
+     primary accent    #3B82F6   Royal Blue
+     secondary accent  #6D5EF5   Secondary Purple
+
+   Dark surfaces (fixed by product design):
      background        #050505
      secondary surface #0E0E11
-     primary accent    #3B82F6
-     secondary accent  #6D5EF5
    ========================================================================== */
 
 @layer base {
   :root {
-    --explorer-bg: #050505;
-    --explorer-surface: #0e0e11;
-    --explorer-border: #22222b;
-    --explorer-accent: #3b82f6;
-    --explorer-accent-alt: #6d5ef5;
+    color-scheme: light;
+
+    /* Surfaces ------------------------------------------------------------ */
+    --x-bg: 248 250 252; /* #f8fafc  application light body */
+    --x-surface: 255 255 255; /* #ffffff */
+    --x-raised: 241 245 249; /* #f1f5f9  neutral-100 */
+    --x-hover: 226 232 240; /* #e2e8f0  neutral-200 */
+    --x-border: 226 232 240; /* #e2e8f0  neutral-200 */
+    /* Interactive boundaries (search input, button outlines, badges) sit on
+       --x-line, not --x-border. neutral-300 only reached 1.6:1 on white, which
+       left the search field's edge barely visible. #7D8A9E clears 3:1 against
+       white, the page and --x-raised alike, without the weight of neutral-500. */
+    --x-line: 125 138 158; /* #7D8A9E */
+
+    /* Type ---------------------------------------------------------------- */
+    --x-text: 15 23 42; /* #0f172a  neutral-900 */
+    --x-subtext: 71 85 105; /* #475569  neutral-600 */
+    --x-faint: 100 116 139; /* #64748b  neutral-500 */
+
+    /* Brand --------------------------------------------------------------- */
+    --x-accent: 59 130 246; /* #3B82F6  Royal Blue */
+    --x-accent-alt: 109 94 245; /* #6D5EF5  Secondary Purple */
+    --x-accent-solid: 21 88 245; /* #1558f5  --color-primary */
+    --x-accent-solid-hover: 14 67 225; /* #0e43e1  securex-700 */
+    --x-on-accent: #ffffff;
+    --x-accent-text: #1558f5; /* 5.7:1 on white */
+    --x-accent-text-hover: #0e43e1;
+    --x-accent-alt-text: #6d5ef5; /* 4.6:1 on white */
+    --x-focus: #2d7bff; /* securex-500, application focus ring */
+
+    /* Gradient brand text -------------------------------------------------- */
+    --x-grad-1: #0f172a;
+    --x-grad-2: #1558f5;
+    --x-grad-3: #6d5ef5;
+
+    /* Status -------------------------------------------------------------- */
+    --x-ok: 34 197 94; /* #22c55e */
+    --x-warn: 245 158 11; /* #f59e0b */
+    --x-bad: 239 68 68; /* #ef4444 */
+    --x-info: 59 130 246; /* #3B82F6 */
+    --x-ok-text: #15803d; /* trust-700  -> 5.0:1 on white */
+    --x-warn-text: #b45309; /* warning-700 -> 5.1:1 on white */
+    --x-bad-text: #b91c1c; /* danger-700  -> 6.5:1 on white */
+    --x-info-text: #1558f5;
+
+    /* Backdrop ------------------------------------------------------------ */
+    --x-grid: 15 23 42;
+    --x-grid-alpha: 0.05;
+    --x-glow-blue: rgba(59, 130, 246, 0.09);
+    --x-glow-purple: rgba(109, 94, 245, 0.07);
+    --x-glow-blue-low: rgba(59, 130, 246, 0.05);
+    --x-card-highlight: transparent; /* the 1px top edge reads dark-only */
+    --x-card-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.05);
+    --x-card-shadow-hover: 0 4px 6px -1px rgb(15 23 42 / 0.06), 0 2px 4px -2px rgb(15 23 42 / 0.06);
+    --x-scrim: rgb(255 255 255 / 0.85);
+    --x-shimmer: rgb(15 23 42 / 0.05);
+    --x-scrollbar: #cbd5e1;
+    --x-scrollbar-hover: #94a3b8;
+    --x-selection-bg: rgba(21, 88, 245, 0.16);
+    --x-selection-text: #0f172a;
+  }
+
+  /* The application marks dark mode with .dark-theme on <html>; the Explorer
+     reuses that exact convention so the two surfaces stay recognisably the
+     same product. Light is the default, so the class is purely additive. */
+  html.dark-theme {
+    color-scheme: dark;
+
+    --x-bg: 5 5 5; /* #050505 */
+    --x-surface: 14 14 17; /* #0E0E11 */
+    --x-raised: 20 20 26; /* #14141A */
+    --x-hover: 26 26 34; /* #1A1A22 */
+
+    --x-text: 244 245 247; /* #F4F5F7 */
+    --x-subtext: 155 160 176; /* #9BA0B0 */
+    /* The original #666C7D measured 3.6:1 on --x-surface, below AA for the
+       small uppercase labels and hints it is used on. Lifted to #828A9C. */
+    --x-faint: 130 138 156; /* #828A9C -> 5.5:1 on --x-surface */
+
+    --x-accent: 59 130 246;
+    --x-accent-alt: 109 94 245;
+    --x-accent-solid: 21 88 245;
+    --x-accent-solid-hover: 37 99 235; /* #2563eb */
+    --x-on-accent: #ffffff;
+    --x-accent-text: #60a5fa; /* blue-400 -> 5.9:1 on #0E0E11 */
+    --x-accent-text-hover: #93c5fd; /* blue-300 */
+    --x-accent-alt-text: #a78bfa; /* purple-400 -> 7.0:1 on #0E0E11 */
+    --x-focus: #2d7bff;
+
+    --x-grad-1: #ffffff;
+    --x-grad-2: #cfe0ff;
+    --x-grad-3: #6d5ef5;
+
+    /* Lighter foreground steps on the dark surfaces: the 600/700 values that
+       carry light mode read as muddy grey-brown against near-black. */
+    --x-ok-text: #4ade83; /* trust-400 */
+    --x-warn-text: #fbbf24; /* warning-400 */
+    --x-bad-text: #f87171; /* danger-400 */
+    --x-info-text: #60a5fa;
+
+    /* --x-line carries the boundary of interactive elements (search input,
+       button outlines). Card dividers stay on --x-border. Both are lifted off
+       the original near-black values so a control's edge is actually
+       discernible: --x-line reaches 3.0:1 on --x-surface, where #2A2A35
+       managed only 1.5:1. */
+    --x-border: 38 38 49; /* #262631 card + table dividers */
+    --x-line: 90 95 115; /* #5A5F73 -> 3.0:1 on --x-surface */
+
+    --x-grid: 255 255 255;
+    --x-grid-alpha: 0.032;
+    --x-glow-blue: rgba(59, 130, 246, 0.16);
+    --x-glow-purple: rgba(109, 94, 245, 0.14);
+    --x-glow-blue-low: rgba(59, 130, 246, 0.07);
+    --x-card-highlight: rgb(255 255 255 / 0.12);
+    --x-card-shadow: none;
+    --x-card-shadow-hover: none;
+    --x-scrim: rgb(5 5 5 / 0.8);
+    --x-shimmer: rgb(255 255 255 / 0.07);
+    --x-scrollbar: #2a2a35;
+    --x-scrollbar-hover: #3a3a48;
+    --x-selection-bg: rgba(59, 130, 246, 0.32);
+    --x-selection-text: #ffffff;
   }
 
   html {
-    color-scheme: dark;
-    background-color: var(--explorer-bg);
+    background-color: rgb(var(--x-bg));
   }
 
   body {
-    @apply bg-explorer-bg text-explorer-text font-sans;
+    @apply text-explorer-text font-sans;
     margin: 0;
     min-height: 100vh;
+    background-color: rgb(var(--x-bg));
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
   }
 
-  /* Visible, on-brand focus ring for keyboard users on the dark surface. */
+  /* Visible, on-brand focus ring for keyboard users in either theme. */
   :focus-visible {
-    outline: 2px solid var(--explorer-accent);
+    outline: 2px solid var(--x-focus);
     outline-offset: 2px;
     border-radius: 4px;
   }
 
   ::selection {
-    background: rgba(59, 130, 246, 0.32);
-    color: #ffffff;
+    background: var(--x-selection-bg);
+    color: var(--x-selection-text);
   }
 
-  /* Dark scrollbar so long explorer tables do not flash a light track. */
+  /* Theme-aware scrollbar so long explorer tables do not flash the wrong
+     track colour while scrolling. */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #2a2a35 transparent;
+    scrollbar-color: var(--x-scrollbar) transparent;
   }
   *::-webkit-scrollbar {
     width: 10px;
@@ -63,28 +210,63 @@
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background-color: #2a2a35;
+    background-color: var(--x-scrollbar);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background-color: #3a3a48;
+    background-color: var(--x-scrollbar-hover);
+  }
+
+  /* Suppress transitions during the initial theme application so the very first
+     paint cannot animate from the previous theme's colours. */
+  html.theme-boot * {
+    transition: none !important;
   }
 }
 
 @layer components {
   /* ---------------------------------------------------------------------
-     BACKGROUND — subtle technical grid + node-network glow.
+     PAGE FRAME — mirrors the application's `.page-container`.
+     --------------------------------------------------------------------- */
+  .explorer-page {
+    @apply mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8;
+  }
+
+  /* ---------------------------------------------------------------------
+     TYPOGRAPHY — mirrors the application's `.page-title` / `.page-subtitle`,
+     with the size trimmed one step for a denser data surface.
+     --------------------------------------------------------------------- */
+  .explorer-title {
+    @apply text-2xl font-bold tracking-tight text-explorer-text sm:text-3xl;
+  }
+
+  .explorer-subtitle {
+    @apply text-sm leading-relaxed text-explorer-subtext;
+  }
+
+  /* Monospace technical values (hashes, node ids, protocol versions).
+     Mirrors the application's `.tech-value`: tabular numerals keep columns of
+     hashes aligned and legible in both themes. */
+  .tech-value {
+    font-family: theme('fontFamily.mono');
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------------------------------------------------------------------
+     BACKGROUND — subtle technical grid + brand glow.
      Two fixed radial glows sit under a faint square grid, which reads as a
-     network/graph paper without ever competing with the data.
+     network without ever competing with the data. Both the grid colour and the
+     glow strength are tokens, so light mode gets a much quieter version
+     instead of a wash of grey-on-white.
      --------------------------------------------------------------------- */
   .explorer-backdrop {
     position: fixed;
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background-color: #050505;
+    background-color: rgb(var(--x-bg));
   }
 
   .explorer-backdrop::before {
@@ -93,8 +275,16 @@
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(to right, rgba(255, 255, 255, 0.032) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
+      linear-gradient(
+        to right,
+        rgb(var(--x-grid) / var(--x-grid-alpha)) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        rgb(var(--x-grid) / var(--x-grid-alpha)) 1px,
+        transparent 1px
+      );
     background-size: 56px 56px;
     /* Fade the grid out toward the bottom so it never fights with content. */
     mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.25));
@@ -113,31 +303,50 @@
     background:
       radial-gradient(
         ellipse 70% 45% at 12% -8%,
-        rgba(59, 130, 246, 0.16),
+        var(--x-glow-blue),
         transparent 60%
       ),
       radial-gradient(
         ellipse 60% 42% at 88% 2%,
-        rgba(109, 94, 245, 0.14),
+        var(--x-glow-purple),
         transparent 62%
       ),
       radial-gradient(
         ellipse 80% 50% at 50% 108%,
-        rgba(59, 130, 246, 0.07),
+        var(--x-glow-blue-low),
         transparent 65%
       );
+  }
+
+  /* ---------------------------------------------------------------------
+     HEADER
+     --------------------------------------------------------------------- */
+  .explorer-header {
+    @apply sticky top-0 z-20 border-b border-explorer-border;
+    background-color: var(--x-scrim);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition:
+      background-color 0.3s ease,
+      border-color 0.3s ease;
   }
 
   /* ---------------------------------------------------------------------
      CARDS
      --------------------------------------------------------------------- */
   .explorer-card {
-    @apply rounded-2xl border border-explorer-border bg-explorer-surface/80 backdrop-blur-sm;
+    @apply rounded-2xl border border-explorer-border bg-explorer-surface;
     position: relative;
+    box-shadow: var(--x-card-shadow);
+    transition:
+      box-shadow 0.2s ease,
+      border-color 0.2s ease,
+      background-color 0.2s ease;
   }
 
   /* A 1px top highlight is what makes a dark card read as a physical surface
-     rather than a flat black rectangle. */
+     rather than a flat black rectangle. It is a light-on-dark effect, so the
+     token is transparent in the light theme where it would only add a smudge. */
   .explorer-card::before {
     content: '';
     position: absolute;
@@ -147,17 +356,15 @@
     background: linear-gradient(
       to right,
       transparent,
-      rgba(255, 255, 255, 0.12),
+      var(--x-card-highlight),
       transparent
     );
     pointer-events: none;
   }
 
-  .explorer-card-hover {
-    @apply transition-colors duration-200;
-  }
   .explorer-card-hover:hover {
     @apply border-explorer-line bg-explorer-raised;
+    box-shadow: var(--x-card-shadow-hover);
   }
 
   /* ---------------------------------------------------------------------
@@ -166,9 +373,9 @@
   .explorer-gradient-text {
     background: linear-gradient(
       100deg,
-      #ffffff 0%,
-      #cfe0ff 38%,
-      #6d5ef5 100%
+      var(--x-grad-1) 0%,
+      var(--x-grad-2) 38%,
+      var(--x-grad-3) 100%
     );
     -webkit-background-clip: text;
     background-clip: text;
@@ -200,7 +407,8 @@
 /* ==========================================================================
    ANIMATION
    Kept deliberately small: a skeleton shimmer, a status ping, and a short
-   entrance for cards. No decorative motion, and all of it is disabled under
+   entrance for cards. The entrance keyframes are the application's
+   `securex-fade-in` / `securex-slide-up`. All of it is disabled under
    `prefers-reduced-motion`.
    ========================================================================== */
 
@@ -247,9 +455,9 @@
   transform: translateX(-100%);
   background-image: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.07) 50%,
-    rgba(255, 255, 255, 0) 100%
+    rgb(var(--x-shimmer) / 0) 0%,
+    var(--x-shimmer) 50%,
+    rgb(var(--x-shimmer) / 0) 100%
   );
   animation: explorer-shimmer 1.6s infinite;
 }
@@ -269,7 +477,9 @@
   .explorer-spin {
     animation: none !important;
   }
-  * {
+  *,
+  *::before,
+  *::after {
     transition-duration: 0.01ms !important;
   }
 }

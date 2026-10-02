@@ -63,7 +63,7 @@ export default function TransactionDetailPage() {
             action={
               <Link
                 to={explorerRoutes.transactions}
-                className="text-sm font-medium text-explorer-accent hover:text-blue-300"
+                className="text-sm font-medium text-explorer-accent-text hover:text-explorer-accent-text-hover"
               >
                 Browse all transactions
               </Link>

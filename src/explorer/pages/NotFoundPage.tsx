@@ -19,7 +19,7 @@ export default function NotFoundPage() {
           action={
             <Link
               to={explorerRoutes.overview}
-              className="text-sm font-medium text-explorer-accent hover:text-blue-300"
+              className="text-sm font-medium text-explorer-accent-text hover:text-explorer-accent-text-hover"
             >
               Back to the explorer overview
             </Link>

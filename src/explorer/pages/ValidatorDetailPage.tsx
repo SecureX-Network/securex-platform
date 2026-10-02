@@ -70,7 +70,7 @@ export default function ValidatorDetailPage() {
             action={
               <Link
                 to={explorerRoutes.validators}
-                className="text-sm font-medium text-explorer-accent hover:text-blue-300"
+                className="text-sm font-medium text-explorer-accent-text hover:text-explorer-accent-text-hover"
               >
                 Browse all validators
               </Link>
@@ -88,7 +88,7 @@ export default function ValidatorDetailPage() {
             action={
               <Link
                 to={explorerRoutes.validators}
-                className="text-sm font-medium text-explorer-accent hover:text-blue-300"
+                className="text-sm font-medium text-explorer-accent-text hover:text-explorer-accent-text-hover"
               >
                 Browse all validators
               </Link>

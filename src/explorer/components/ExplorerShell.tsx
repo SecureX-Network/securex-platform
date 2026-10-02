@@ -1,10 +1,11 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Boxes, Network, Search, ShieldCheck, Waypoints, X } from 'lucide-react';
+import { Boxes, ExternalLink, Network, Search, ShieldCheck, Waypoints, X } from 'lucide-react';
 import { classNames } from '@/utils';
 import { classifySearchQuery } from '../services/chainApi';
 import { explorerRoutes } from '../utils/format';
 import { useExplorerChain } from '../providers/chainContext';
+import { ThemeToggle } from '../theme/ThemeToggle';
 import { Badge, ExplorerButton, RefreshButton, type Tone } from './primitives';
 
 const NAV_ITEMS = [
@@ -70,7 +71,7 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
       <div className="explorer-backdrop" aria-hidden="true" />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="sticky top-0 z-20 border-b border-explorer-border bg-explorer-bg/80 backdrop-blur-xl">
+        <header className="explorer-header">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between gap-4 py-4">
               <Link to={explorerRoutes.overview} className="group flex min-w-0 items-center gap-3">
@@ -81,19 +82,27 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
                   <span className="text-sm font-bold tracking-[0.18em] text-explorer-text">
                     SECUREX
                   </span>
-                  <span className="truncate text-[0.6875rem] font-medium tracking-[0.12em] text-explorer-accent">
+                  <span className="truncate text-[0.6875rem] font-medium tracking-[0.12em] text-explorer-accent-text">
                     BLOCKCHAIN EXPLORER
                   </span>
                 </span>
               </Link>
 
               <div className="flex shrink-0 items-center gap-2">
+                <a
+                  href="https://app-securex.sp-net.in/"
+                  className="hidden h-9 items-center gap-1.5 rounded-lg border border-explorer-line bg-explorer-raised px-3 text-sm font-medium text-explorer-text transition-colors hover:border-explorer-accent hover:text-explorer-accent-text lg:inline-flex"
+                >
+                  <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+                  SecureX App
+                </a>
                 <span className="hidden sm:block" data-testid="network-status-badge">
                   <Badge tone={tone} dot>
                     {label}
                   </Badge>
                 </span>
                 <RefreshButton onClick={reload} refreshing={refreshing} />
+                <ThemeToggle />
               </div>
             </div>
 
@@ -124,7 +133,7 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
                   ) : (
                     <button
                       type="submit"
-                      className="h-7 rounded-lg bg-explorer-accent px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-500"
+                      className="h-7 rounded-lg bg-explorer-accent-solid px-3 text-xs font-semibold text-explorer-on-accent transition-colors hover:bg-explorer-accent-solid-hover"
                     >
                       Search
                     </button>
@@ -133,7 +142,10 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
               </div>
             </form>
 
-            <nav aria-label="Explorer sections" className="-mx-1 flex gap-1 overflow-x-auto pb-3">
+            <nav
+              aria-label="Explorer sections"
+              className="-mx-1 flex gap-1 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
               {NAV_ITEMS.map((item) => (
                 <NavLink
                   key={item.to}
@@ -143,7 +155,7 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
                     classNames(
                       'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                       isActive
-                        ? 'bg-explorer-accent/12 text-explorer-accent ring-1 ring-inset ring-explorer-accent/25'
+                        ? 'bg-explorer-accent/10 text-explorer-accent-text ring-1 ring-inset ring-explorer-accent/30'
                         : 'text-explorer-subtext hover:bg-explorer-raised hover:text-explorer-text',
                     )
                   }
@@ -156,15 +168,13 @@ export function ExplorerShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
-          {children}
-        </main>
+        <main className="explorer-page flex-1">{children}</main>
 
         <footer className="mt-8 border-t border-explorer-border">
           <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-7 text-xs text-explorer-faint sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
             <p className="flex items-center gap-2">
-              <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5 text-explorer-accent" />
-              Public, read-only view of the SecureX trust infrastructure.
+              <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5 text-explorer-accent-text" />
+              Public network visibility for the SecureX trust infrastructure.
             </p>
             <nav aria-label="SecureX sites" className="flex flex-wrap items-center gap-4">
               <a

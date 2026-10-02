@@ -128,7 +128,7 @@ export default function OverviewPage() {
       <Card className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-explorer-border bg-explorer-raised text-explorer-accent">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-explorer-border bg-explorer-raised text-explorer-accent-text">
               <Activity aria-hidden="true" className="h-5 w-5" />
             </span>
             <div>
@@ -248,7 +248,7 @@ export default function OverviewPage() {
               action={
                 <Link
                   to={explorerRoutes.blocks}
-                  className="text-xs font-medium text-explorer-accent transition-colors hover:text-blue-300"
+                  className="text-xs font-medium text-explorer-accent-text transition-colors hover:text-explorer-accent-text-hover"
                 >
                   View all
                 </Link>
@@ -312,7 +312,7 @@ export default function OverviewPage() {
               action={
                 <Link
                   to={explorerRoutes.transactions}
-                  className="text-xs font-medium text-explorer-accent transition-colors hover:text-blue-300"
+                  className="text-xs font-medium text-explorer-accent-text transition-colors hover:text-explorer-accent-text-hover"
                 >
                   View all
                 </Link>

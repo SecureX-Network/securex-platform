@@ -8,23 +8,59 @@ export default {
   theme: {
     extend: {
       colors: {
-        // SecureX Blockchain Explorer palette. Additive and scoped to the
-        // dedicated Explorer build (src/explorer/**) — the SecureX application
-        // never references these tokens, so the app's light theme is
-        // unaffected by their presence here.
+        // SecureX Blockchain Explorer palette.
+        //
+        // Additive and scoped to the dedicated Explorer build
+        // (src/explorer/**) — the SecureX application never references these
+        // tokens, so the app's own light theme is unaffected by their presence.
+        //
+        // Every value is a CSS custom property defined in
+        // src/explorer/styles/explorer.css, which is what lets one class name
+        // (e.g. `bg-explorer-surface`) resolve correctly in BOTH the light and
+        // the dark theme. The values are stored as bare RGB channel triplets so
+        // Tailwind's opacity modifier (`bg-explorer-surface/80`) keeps working.
         explorer: {
-          bg: "#050505",
-          surface: "#0E0E11",
-          raised: "#14141A",
-          hover: "#1A1A22",
-          border: "#22222B",
-          line: "#2A2A35",
-          accent: "#3B82F6",
-          "accent-alt": "#6D5EF5",
-          text: "#F4F5F7",
-          subtext: "#9BA0B0",
-          faint: "#666C7D",
+          bg: "rgb(var(--x-bg) / <alpha-value>)",
+          surface: "rgb(var(--x-surface) / <alpha-value>)",
+          raised: "rgb(var(--x-raised) / <alpha-value>)",
+          hover: "rgb(var(--x-hover) / <alpha-value>)",
+          border: "rgb(var(--x-border) / <alpha-value>)",
+          line: "rgb(var(--x-line) / <alpha-value>)",
+          accent: "rgb(var(--x-accent) / <alpha-value>)",
+          "accent-alt": "rgb(var(--x-accent-alt) / <alpha-value>)",
+
+          // Fill colours for surfaces that carry white text. Kept separate from
+          // `accent` because the brand blue (#3B82F6) only reaches ~3.7:1 against
+          // white — fine for borders, glows and gradients, but below WCAG AA for
+          // a text label. `accent-solid` is the brand's own darker step so that
+          // button labels pass AA in both themes.
+          "accent-solid": "rgb(var(--x-accent-solid) / <alpha-value>)",
+          "accent-solid-hover": "rgb(var(--x-accent-solid-hover) / <alpha-value>)",
+          "on-accent": "var(--x-on-accent)",
+
+          // Foreground variants. The brand blue/purple are tuned for *fills*;
+          // as text on a light surface they need a deeper step to clear AA.
+          "accent-text": "var(--x-accent-text)",
+          "accent-text-hover": "var(--x-accent-text-hover)",
+          "accent-alt-text": "var(--x-accent-alt-text)",
+
+          text: "rgb(var(--x-text) / <alpha-value>)",
+          subtext: "rgb(var(--x-subtext) / <alpha-value>)",
+          faint: "rgb(var(--x-faint) / <alpha-value>)",
         },
+
+        // Semantic status tones. The plain `ok`/`warn`/`bad`/`info` entries are
+        // RGB triplets, so a component can tint a surface or a border with an
+        // opacity modifier in either theme; the `*-text` companions are the
+        // per-theme foreground steps chosen to stay legible on their own tint.
+        ok: "rgb(var(--x-ok) / <alpha-value>)",
+        "ok-text": "var(--x-ok-text)",
+        warn: "rgb(var(--x-warn) / <alpha-value>)",
+        "warn-text": "var(--x-warn-text)",
+        bad: "rgb(var(--x-bad) / <alpha-value>)",
+        "bad-text": "var(--x-bad-text)",
+        info: "rgb(var(--x-info) / <alpha-value>)",
+        "info-text": "var(--x-info-text)",
         securex: {
           50: "#eef6ff",
           100: "#d9ebff",

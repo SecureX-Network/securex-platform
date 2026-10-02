@@ -117,7 +117,7 @@ export default function TransactionsPage() {
                           event.stopPropagation();
                           navigate(explorerRoutes.block(tx.blockHeight));
                         }}
-                        className="font-medium tabular-nums text-explorer-accent hover:underline"
+                        className="font-medium tabular-nums text-explorer-accent-text hover:underline"
                       >
                         #{formatCount(tx.blockHeight)}
                       </button>
