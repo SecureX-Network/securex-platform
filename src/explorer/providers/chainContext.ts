@@ -44,6 +44,7 @@ export function useExplorerChain(): ExplorerChainContextValue {
       attemptsMade: 0,
       transient: false,
       exhausted: false,
+      inFlightMs: 0,
       reload: () => {},
       connection: deriveConnection({
         everSucceeded: false,

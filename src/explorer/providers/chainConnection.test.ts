@@ -137,6 +137,49 @@ describe('deriveConnection', () => {
 
       expect(result.detail).toMatch(/reconnect/i);
     });
+
+    it('reports an outstanding first read as waking once it is far too slow', () => {
+      // One request has to outlast the API's own ~40s retry budget before it can
+      // be called a failure. Until then there is nothing to report but the wait
+      // — and leaving that on "Connecting" for over two minutes is exactly what
+      // this state exists to stop.
+      const result = deriveConnection(input({ inFlight: true, inFlightMs: 14_000 }));
+
+      expect(result.state).toBe('waking');
+      expect(result.label).toBe('Waking');
+      expect(result.detail).toMatch(/14s/);
+      expect(result.detail).toMatch(/taking longer than usual/i);
+    });
+
+    it('keeps the elapsed hint honest — a quick read is still just connecting', () => {
+      const quick = deriveConnection(input({ inFlight: true, inFlightMs: 900 }));
+      expect(quick.state).toBe('connecting');
+
+      // An awake node answers in ~0.3s, so nothing near the threshold counts.
+      const almost = deriveConnection(input({ inFlight: true, inFlightMs: 9_000 }));
+      expect(almost.state).toBe('connecting');
+    });
+
+    it('reports an outstanding attempt as waking, whatever the previous failure was', () => {
+      // The hook clears `error` when an attempt begins, so in practice this is
+      // the "retry in flight" state. A request really is being made, so the
+      // honest description is that we are waiting, not that it has failed.
+      const result = deriveConnection(
+        input({ inFlight: true, inFlightMs: 30_000, error: 'unreachable', transient: false }),
+      );
+
+      expect(result.state).toBe('waking');
+      expect(result.willRetry).toBe(true);
+    });
+
+    it('reports a non-retryable failure as unavailable once nothing is in flight', () => {
+      const result = deriveConnection(
+        input({ inFlight: false, inFlightMs: 0, error: 'Unauthorized', transient: false }),
+      );
+
+      expect(result.state).toBe('unavailable');
+      expect(result.willRetry).toBe(false);
+    });
   });
 
   describe('unavailable', () => {

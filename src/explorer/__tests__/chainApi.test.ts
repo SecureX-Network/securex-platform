@@ -364,19 +364,40 @@ describe('explorer chainApi (REAL mode)', () => {
     await expect(getChainHealth()).rejects.toBeDefined();
   });
 
-  it('retries a transient failure and then succeeds', async () => {
+  it('surfaces a transient failure after one attempt, for the ladder to retry', async () => {
+    // The Platform API already retries a sleeping node for ~40s before returning
+    // a definitive 502, so retrying again here only multiplied a 45s request
+    // into a 149s cycle and piled more requests onto a struggling free-tier
+    // instance. Recovery belongs to the bounded ladder in `useChainResource`,
+    // which backs off, is capped, and pauses on a hidden tab.
     let attempts = 0;
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    fetchMock.mockImplementation(async () => {
       attempts += 1;
-      if (attempts < 3) return fail(503, 'Blockchain service unavailable');
-      return routeProductionApi(String(input));
+      return fail(503, 'Blockchain service unavailable');
     });
 
     const { getChainHealth } = await loadRealModule();
-    const health = await getChainHealth();
 
-    expect(attempts).toBe(3);
-    expect(health.status).toBe('UP');
+    await expect(getChainHealth()).rejects.toBeDefined();
+    expect(attempts).toBe(1);
+
+    // And the failure is recognisable as the node being asleep, so the ladder
+    // knows it is worth retrying quickly rather than backing off for minutes.
+    const { isTransientChainError } = await loadRealModule();
+    await getChainHealth().catch((e: unknown) => {
+      expect(isTransientChainError(e)).toBe(true);
+    });
+  });
+
+  it('reports a transient failure without inventing data', async () => {
+    fetchMock.mockImplementation(async () => fail(502, 'BLOCKCHAIN_UNREACHABLE'));
+
+    const { getChainSummary } = await loadRealModule();
+
+    // Health gates the summary, so an unreachable node costs exactly one
+    // request rather than fanning out to four.
+    await expect(getChainSummary()).rejects.toBeDefined();
+    expect(fetchMock.mock.calls.length).toBe(1);
   });
 
   it('does not retry a 404 — a missing record is a real answer', async () => {

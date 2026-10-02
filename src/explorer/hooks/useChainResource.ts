@@ -25,6 +25,16 @@ export interface ChainResource<T> {
    * a genuine fault is reported immediately and never burns a retry budget.
    */
   exhausted: boolean;
+  /**
+   * How long the outstanding attempt has been waiting, in ms; 0 when idle.
+   *
+   * Only populated for a resource with a `recovery` profile. One request has to
+   * outlast the API's own retry budget before it can be called a failure, and
+   * until then the UI would otherwise have nothing to report for well over a
+   * minute. Elapsed time is real evidence rather than an assumption, so it
+   * gives the UI something honest to say in the meantime.
+   */
+  inFlightMs: number;
   /** Manual refresh. Always available, and always resets the retry budget. */
   reload: () => void;
 }
@@ -141,6 +151,7 @@ export function useChainResource<T>(
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [attemptsMade, setAttemptsMade] = useState(0);
   const [transient, setTransient] = useState(false);
+  const [inFlightMs, setInFlightMs] = useState(0);
 
   const requestIdRef = useRef(0);
   const mountedRef = useRef(true);
@@ -248,6 +259,23 @@ export function useChainResource<T>(
     void run(true);
   }, [enabled, depsKey, run]);
 
+  // A one-second heartbeat for the elapsed-time signal, alive only while a
+  // request is outstanding and only for a resource that has a recovery profile.
+  // A healthy read finishes in ~0.3s, so this almost never actually runs.
+  useEffect(() => {
+    const inFlight = loading || refreshing;
+    if (!recovery || !inFlight) {
+      setInFlightMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setInFlightMs(0);
+    const ticker = window.setInterval(() => {
+      setInFlightMs(Date.now() - startedAt);
+    }, 1000);
+    return () => window.clearInterval(ticker);
+  }, [loading, refreshing, recovery]);
+
   // Conservative polling, paused while the tab is hidden, backed off while the
   // upstream is failing, and retried on a short bounded ladder when the upstream
   // is merely asleep.
@@ -337,6 +365,7 @@ export function useChainResource<T>(
     attemptsMade,
     transient,
     exhausted,
+    inFlightMs,
     reload: () => {
       // A manual reload is a request from the visitor to try again, so it starts
       // a fresh bounded cycle rather than inheriting an exhausted one.

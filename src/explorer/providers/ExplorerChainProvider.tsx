@@ -58,6 +58,7 @@ export function ExplorerChainProvider({ children }: { children: ReactNode }) {
         attemptsMade: resource.attemptsMade,
         exhausted: resource.exhausted,
         nodeStatus: resource.data?.health?.status ?? null,
+        inFlightMs: resource.inFlightMs,
       }),
     };
   }, [resource]);

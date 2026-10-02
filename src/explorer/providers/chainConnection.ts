@@ -58,6 +58,17 @@ export interface ChainConnectionInput {
   exhausted: boolean;
   /** The node's own reported status, e.g. 'UP' | 'RUNNING' | 'DEGRADED'. */
   nodeStatus: string | null;
+  /**
+   * How long the current attempt has been in flight, in ms. Null when nothing
+   * is in flight.
+   *
+   * This exists because "Connecting" was doing too much work. A single request
+   * has to outlast the API's own ~40s retry budget, so a visitor who loaded the
+   * page against a sleeping node saw "Connecting" for well over two minutes —
+   * technically honest (nothing is known, so nothing is claimed) but useless,
+   * because it never once said the node was asleep.
+   */
+  inFlightMs?: number | null;
 }
 
 export interface ChainConnection {
@@ -76,6 +87,20 @@ export interface ChainConnection {
 const HEALTHY = new Set(['UP', 'RUNNING']);
 
 /**
+ * How long a health read may take before it is reasonable to suspect the node
+ * is asleep.
+ *
+ * Measured against the same node: awake it answers `/health` in ~0.3s, and a
+ * cold start takes ~22s. Ten seconds is therefore far outside the normal range
+ * and far inside the worst case — comfortably between the two, so it fires only
+ * when something is genuinely wrong with the upstream.
+ *
+ * It is a signal, not a fact, and the copy says so: the state reports that the
+ * node is taking unusually long, not that it has been proven to be asleep.
+ */
+const WAKING_HINT_MS = 10_000;
+
+/**
  * Derive the connection state.
  *
  * Ordering is deliberate and load-bearing. A previous success is trusted only
@@ -84,7 +109,7 @@ const HEALTHY = new Set(['UP', 'RUNNING']);
  * claim about the present and the state must reflect the failure.
  */
 export function deriveConnection(input: ChainConnectionInput): ChainConnection {
-  const { everSucceeded, inFlight, error, transient, attemptsMade, exhausted, nodeStatus } = input;
+  const { everSucceeded, inFlight, error, transient, attemptsMade, exhausted, nodeStatus, inFlightMs } = input;
   const nodeHealthy = nodeStatus !== null && HEALTHY.has(nodeStatus.toUpperCase());
 
   // The one sentence that explains every waking state. It is attached in both
@@ -174,6 +199,25 @@ export function deriveConnection(input: ChainConnectionInput): ChainConnection {
       title: 'Blockchain node did not respond',
       detail: `SecureX could not reach the blockchain node after ${attemptsMade} ${attemptsMade === 1 ? 'attempt' : 'attempts'}. This node sleeps when idle on a free hosting tier; it may need a moment, or a manual retry.`,
       willRetry: false,
+    };
+  }
+
+  // First attempt, still nothing known and nothing failed. But if the read has
+  // now been outstanding for far longer than a healthy node ever takes, "still
+  // connecting" stops being the useful thing to say.
+  if (
+    inFlightMs != null &&
+    inFlightMs >= WAKING_HINT_MS &&
+    !everSucceeded &&
+    error === null
+  ) {
+    return {
+      state: 'waking',
+      tone: 'warn',
+      label: 'Waking',
+      title: 'Waiting for the blockchain node',
+      detail: `The node has not responded for ${Math.round(inFlightMs / 1000)}s. It is taking longer than usual to start — ${WAKING_CONTEXT}`,
+      willRetry: true,
     };
   }
 

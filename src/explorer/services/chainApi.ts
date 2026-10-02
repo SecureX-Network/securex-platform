@@ -71,14 +71,39 @@ export type {
 export type { ChainMetricsDto, ChainStateDto };
 
 /**
- * A generous request budget. The Platform API and the blockchain node both run
- * on Render's free plan and suspend when idle; a cold start was measured at
- * ~23s. The default 15s client timeout would turn a healthy, merely-asleep node
- * into a false "unavailable" error, so the Explorer waits longer and leans on
- * the retry below.
+ * A request budget deliberately matched to the Platform API's own retry budget.
+ *
+ * `server/services/blockchain.ts` already retries a sleeping node eight times
+ * over roughly 40s before giving up and returning a definitive
+ * `502 BLOCKCHAIN_UNREACHABLE`. That budget is the thing this timeout has to
+ * outlast: a client timeout *shorter* than it would throw away a request the
+ * API was about to answer successfully, turning a healthy, merely-asleep node
+ * into a false failure. 45s sits just above the measured ~40s.
+ *
+ * (The code default for `BLOCKCHAIN_TIMEOUT_MS` is 10s; production sets 60s.)
  */
 const REQUEST_TIMEOUT_MS = 45_000;
-const REQUEST_RETRIES = 2;
+
+/**
+ * NO second retry layer here.
+ *
+ * There used to be two retries, and the arithmetic is the whole story: a
+ * request that could take 45s, retried twice more, is a single cycle that can
+ * block for up to 149s. Measured against a sleeping production node, that is
+ * exactly how long the header sat on "Connecting" before it learned anything —
+ * the node had woken after ~22s, but the Explorer was still inside its own
+ * redundant retry fan-out and had no failure to report yet.
+ *
+ * Worse, each of those three attempts is a fresh upstream request to a
+ * free-tier instance that is already struggling to boot.
+ *
+ * Retrying here was always redundant: the API does the retrying, and once its
+ * budget is spent it returns a definitive 502 that `isTransientChainError`
+ * recognises. Retrying again is the bounded recovery ladder's job, and that
+ * ladder (`useChainResource`) has properties a blind in-request retry does not:
+ * it backs off, it is capped, it pauses on a hidden tab, and it stops.
+ */
+const REQUEST_RETRIES = 0;
 const RETRY_DELAY_MS = 900;
 
 /** The chain is empty: a real, correctly-reported state — never an error. */
