@@ -60,9 +60,23 @@ services:
         generateValue: true
       - key: JWT_TTL
         value: 8h
-      # Exact allowed browser origins (Vercel frontend). "*" is rejected.
+      # Exact allowed browser origins. "*" is rejected.
+      #
+      # The Explorer is a first-party, public, read-only surface: it serves no
+      # session, cookie or credential and only ever reads the public
+      # /api/blockchain/* endpoints. Without its origin listed here the browser
+      # blocks every response it fetches (the preflight returns 204 but with no
+      # Access-Control-Allow-Origin header), so the Explorer renders
+      # "Blockchain service unavailable" even while the chain is perfectly
+      # healthy -- which is exactly how it failed. Both the project's own Vercel
+      # domain and the custom domain are listed because both serve it.
+      #
+      # This widens who may READ public data. It grants no write access, no
+      # privileged operation and no authentication; every mutating and admin
+      # route remains JWT-protected and origin checks are not used as an
+      # authorization control anywhere.
       - key: CORS_ORIGINS
-        value: https://app-securex.sp-net.in
+        value: https://app-securex.sp-net.in,https://securex-explorer.vercel.app,https://explorer-securex.sp-net.in
       - key: DATABASE_URL
         fromDatabase:
           name: securex-postgres

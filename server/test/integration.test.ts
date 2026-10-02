@@ -10,6 +10,19 @@ process.env.SEED_ON_BOOT = 'true';
 process.env.DATA_MODE = 'demo';
 process.env.JWT_SECRET = 'integration-test-secret-0123456789abcdef-tests-only';
 
+// Mirror the production CORS allowlist exactly (see render.yaml).
+//
+// The Explorer's origins MUST be in this list. When they are absent the
+// preflight still returns 204 but with no Access-Control-Allow-Origin header,
+// so the browser discards every response and the Explorer renders
+// "Blockchain service unavailable" even while the chain is completely healthy.
+// That failure is invisible server-side, which is why it is pinned here.
+process.env.CORS_ORIGINS = [
+  'https://app-securex.sp-net.in',
+  'https://securex-explorer.vercel.app',
+  'https://explorer-securex.sp-net.in',
+].join(',');
+
 // Resolve the integration-test database and pin DATABASE_URL to it so the
 // app, the schema, and the seed all use exactly the database being tested.
 const RESOLVED_TEST_DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgres://localhost:5432/securex_test';
@@ -994,5 +1007,58 @@ describe('GET / landing page', () => {
 
     assert.ok(html.includes('Degraded'), 'does not claim Operational while the database is down');
     assert.ok(html.includes('Unavailable'), 'reports the database as unavailable');
+  });
+});
+
+describe('CORS allowlist', () => {
+  // The Explorer is a public, read-only first-party surface: no session, no
+  // cookie, no credential. It is allowed to READ the public /api/blockchain/*
+  // responses and nothing else. These tests pin both halves of that promise --
+  // the listed origins really are allowed, and an unlisted origin still is not.
+  const ALLOWED = [
+    'https://app-securex.sp-net.in',
+    'https://securex-explorer.vercel.app',
+    'https://explorer-securex.sp-net.in',
+  ];
+
+  for (const origin of ALLOWED) {
+    test(`allows the read-only blockchain endpoints from ${origin}`, async () => {
+      const res = await request(app)
+        .options('/api/blockchain/health')
+        .set('Origin', origin)
+        .set('Access-Control-Request-Method', 'GET');
+
+      assert.ok(
+        res.status === 204 || res.status === 200,
+        `preflight should succeed, got ${res.status}`,
+      );
+      assert.equal(
+        res.headers['access-control-allow-origin'],
+        origin,
+        'the browser needs the exact origin echoed back or it discards the response',
+      );
+    });
+  }
+
+  test('does not grant an unlisted origin any access', async () => {
+    const res = await request(app)
+      .options('/api/blockchain/health')
+      .set('Origin', 'https://evil.example')
+      .set('Access-Control-Request-Method', 'GET');
+
+    assert.equal(
+      res.headers['access-control-allow-origin'],
+      undefined,
+      'an unlisted origin must not be reflected back',
+    );
+  });
+
+  test('a CORS grant is not an authorization grant', async () => {
+    // Allowed to read must not mean allowed to act. The privileged routes stay
+    // JWT-protected regardless of where the request comes from.
+    const explorerOrigin = 'https://securex-explorer.vercel.app';
+    const res = await request(app).get('/api/admin/users').set('Origin', explorerOrigin);
+
+    assert.equal(res.status, 401, 'an allowlisted origin must still authenticate for admin routes');
   });
 });
