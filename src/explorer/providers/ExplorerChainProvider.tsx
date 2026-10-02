@@ -52,7 +52,7 @@ export function ExplorerChainProvider({ children }: { children: ReactNode }) {
       status,
       connection: deriveConnection({
         everSucceeded: resource.updatedAt !== null,
-        inFlight: resource.loading || resource.refreshing,
+        inFlight: resource.inFlight,
         error: resource.error,
         transient: resource.transient,
         attemptsMade: resource.attemptsMade,

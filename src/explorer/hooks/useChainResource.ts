@@ -9,6 +9,15 @@ export interface ChainResource<T> {
   loading: boolean;
   /** True while re-fetching a target whose data is already on screen. */
   refreshing: boolean;
+  /**
+   * True while any attempt is in flight.
+   *
+   * Distinct from `loading` / `refreshing` on purpose. A *retry* that runs
+   * before the first success has no data on screen, so it sets neither of those
+   * and would otherwise read as idle — dropping the UI back to "Connecting" for
+   * the whole attempt, right after it had correctly said the node was asleep.
+   */
+  inFlight: boolean;
   /** The lookup was answered definitively: it does not exist. */
   notFound: boolean;
   /** When `data` was last successfully fetched. */
@@ -148,6 +157,7 @@ export function useChainResource<T>(
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(enabled);
   const [refreshing, setRefreshing] = useState(false);
+  const [inFlight, setInFlight] = useState(enabled);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [attemptsMade, setAttemptsMade] = useState(0);
   const [transient, setTransient] = useState(false);
@@ -194,6 +204,7 @@ export function useChainResource<T>(
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
 
+      setInFlight(true);
       if (fresh) {
         // A new target (route change / new page): show a skeleton.
         hasDataRef.current = false;
@@ -244,6 +255,7 @@ export function useChainResource<T>(
         if (mountedRef.current && requestIdRef.current === requestId) {
           setLoading(false);
           setRefreshing(false);
+          setInFlight(false);
         }
       }
     },
@@ -360,6 +372,7 @@ export function useChainResource<T>(
     error,
     loading,
     refreshing,
+    inFlight,
     notFound,
     updatedAt,
     attemptsMade,

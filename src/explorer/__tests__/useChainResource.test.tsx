@@ -39,6 +39,8 @@ function Probe({
       <span data-testid="errors">{resource.error ?? 'none'}</span>
       <span data-testid="updated">{resource.updatedAt ? 'yes' : 'no'}</span>
       <span data-testid="transient">{String(resource.transient)}</span>
+      <span data-testid="inflight">{String(resource.inFlight)}</span>
+      <span data-testid="loading">{String(resource.loading)}</span>
       <span data-testid="exhausted">{String(resource.exhausted)}</span>
       <span data-testid="attempts">{resource.attemptsMade}</span>
       <button onClick={resource.reload}>refresh</button>
@@ -295,6 +297,35 @@ describe('useChainResource bounded recovery', () => {
     expect(screen.getByTestId('exhausted')).toHaveTextContent('false');
     // It still backs off on the ordinary poll ladder rather than spinning.
     expect(loader.mock.calls.length).toBeLessThan(10);
+  });
+
+  it('stays in flight during a retry that has no data yet', async () => {
+    // A retry before the first success has no data on screen, so it sets neither
+    // `loading` (skeleton) nor `refreshing` (data already shown). Without an
+    // explicit in-flight signal the UI would read that as idle and drop back to
+    // "Connecting" for the whole attempt, right after saying the node was asleep.
+    //
+    // The loader is held open so the attempt can be observed while it is running
+    // rather than after it has settled.
+    const pending: Array<{ reject: (e: unknown) => void }> = [];
+    loader.mockImplementation(
+      () => new Promise((_resolve, reject) => pending.push({ reject })),
+    );
+
+    render(<Probe recovery={RECOVERY} />);
+    await act(async () => {});
+    expect(screen.getByTestId('inflight')).toHaveTextContent('true');
+
+    await act(async () => {
+      pending.shift()!.reject(asleep());
+    });
+    expect(screen.getByTestId('inflight')).toHaveTextContent('false');
+
+    // The retry is now in flight and there is still no data on screen. This is
+    // the state that used to be indistinguishable from idle.
+    await advance(RECOVERY.baseDelayMs);
+    expect(screen.getByTestId('inflight')).toHaveTextContent('true');
+    expect(screen.getByTestId('loading')).toHaveTextContent('false');
   });
 
   it('does not silently restart a spent budget when the tab becomes visible', async () => {

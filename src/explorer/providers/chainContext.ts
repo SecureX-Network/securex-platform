@@ -39,6 +39,7 @@ export function useExplorerChain(): ExplorerChainContextValue {
       error: null,
       loading: true,
       refreshing: false,
+      inFlight: true,
       notFound: false,
       updatedAt: null,
       attemptsMade: 0,
