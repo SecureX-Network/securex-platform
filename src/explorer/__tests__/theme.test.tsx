@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -393,8 +395,27 @@ describe('first paint', () => {
 
   it('paints light before React runs when nothing is stored', () => {
     installMatchMedia(false);
-    // This is what the inline script computes before first paint.
+    // This is what the boot script computes before first paint.
     expect(resolveInitialTheme(window.localStorage.getItem(THEME_STORAGE_KEY), false)).toBe('light');
+  });
+
+  it('loads the boot script from a same-origin file, not inline', async () => {
+    // The deployment serves the Explorer under `script-src 'self'`, which
+    // refuses inline scripts. An inline boot script was silently blocked in
+    // production, which is exactly how the flash-of-wrong-theme it exists to
+    // prevent came back. Nothing in the Explorer's own HTML may be inline.
+    const html = await readFile(resolve(__dirname, '../../../explorer/index.html'), 'utf8');
+
+    expect(html).toContain('<script src="/theme-boot.js">');
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/);
+
+    // The file it points at must actually exist, or the page falls back to
+    // painting light and then flipping -- the precise failure being guarded.
+    const boot = await readFile(resolve(__dirname, '../../../public/theme-boot.js'), 'utf8');
+    expect(boot).toContain("localStorage.getItem('securex-explorer-theme')");
+    expect(boot).toContain('prefers-color-scheme: dark');
+    expect(boot).toContain('theme-boot');
+    expect(boot).toContain('dark-theme');
   });
 });
 
