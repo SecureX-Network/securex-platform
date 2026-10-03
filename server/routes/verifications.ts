@@ -12,6 +12,8 @@ import {
 } from '../dto/publicVerification.js';
 import { fail, ok, param } from '../utils/http.js';
 import { entityId } from '../utils/ids.js';
+import { readChainEvidence } from '../services/credentialAnchor.js';
+import type { ChainEvidence } from '../dto/publicVerification.js';
 
 export const verificationsRouter = Router();
 
@@ -32,6 +34,8 @@ async function credentialByPublicId(credentialId: string): Promise<CredentialRow
     `SELECT c.id, c.credential_id, c.type, c.title, c.description, c.holder_name, c.holder_id,
             c.issuer_id, c.institution_id, c.status, c.issued_at, c.expires_at, c.revoked_at,
             c.revoked_reason, c.tx_hash, c.merkle_root, c.digital_signature, c.template_id, c.metadata_json,
+            c.credential_hash, c.chain_issuer_id, c.chain_tx_id, c.chain_block_height, c.chain_block_hash,
+            c.anchor_status, c.anchor_error,
             k.name AS issuer_name, i.name AS institution_name
      FROM credentials c
      JOIN issuers k ON k.id = c.issuer_id
@@ -68,6 +72,51 @@ function isValidSha256Hex(hash: string): boolean {
   return /^[\da-f]{64}$/i.test(hash);
 }
 
+/**
+ * Ask the chain what it actually holds for this credential.
+ *
+ * The chain is queried by the PUBLIC credential id, so the result is exactly
+ * what an independent verifier would see — this service never substitutes its own
+ * record for the chain's. Three outcomes are kept distinct: the chain holds a
+ * record, the chain answered that it holds none, and the chain could not be
+ * reached. The DTO reports each in those words rather than papering over them.
+ */
+async function chainEvidenceFor(row: CredentialRow): Promise<ChainEvidence> {
+  const result = await readChainEvidence(row.credential_id);
+  if ('unavailable' in result) {
+    return { available: false, reason: result.reason };
+  }
+  if ('notOnChain' in result) {
+    // The chain was reached and holds nothing for this id.
+    return {
+      available: true,
+      onChainRecord: false,
+      proofVerified: false,
+      issuerSignatureValid: false,
+      transactionId: null,
+      transactionHash: null,
+      merkleRoot: null,
+      blockHeight: null,
+      blockHash: null,
+      chainStatus: null,
+    };
+  }
+  const verification = result.verification;
+  const proof = verification?.proof ?? null;
+  return {
+    available: true,
+    onChainRecord: true,
+    proofVerified: proof?.verified === true,
+    issuerSignatureValid: verification?.issuerSignatureValid === true,
+    transactionId: proof?.transactionId ?? null,
+    transactionHash: proof?.transactionHash ?? null,
+    merkleRoot: proof?.merkleRoot ?? null,
+    blockHeight: proof?.blockHeight ?? null,
+    blockHash: proof?.blockHash ?? null,
+    chainStatus: verification?.status ?? null,
+  };
+}
+
 async function buildVerification(credentialId: string, documentHash?: string): Promise<PublicVerificationDto> {
   const row = await credentialByPublicId(credentialId);
   const verifiedAt = new Date().toISOString();
@@ -77,7 +126,8 @@ async function buildVerification(credentialId: string, documentHash?: string): P
     return toPublicNotFoundDto(credentialId, verifiedAt);
   }
 
-  const dto = toPublicVerificationDto({ row, documentHash, verifiedAt });
+  const chain = await chainEvidenceFor(row);
+  const dto = toPublicVerificationDto({ row, documentHash, verifiedAt, chain });
   await recordVerification(row.credential_id, row.id, row.title, dto.status, 'API');
   return dto;
 }

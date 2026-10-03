@@ -132,6 +132,23 @@ export const serverConfig = {
    */
   blockchainAuthToken: env('BLOCKCHAIN_AUTH_TOKEN', ''),
   blockchainTimeoutMs: Number(env('BLOCKCHAIN_TIMEOUT_MS', '10000')),
+  /**
+   * Which ON-CHAIN issuer identity this platform anchors credentials under.
+   *
+   * This is deliberately NOT the platform's own issuer ids. The chain custodies
+   * the issuer Ed25519 private key (the platform never sees it, and must never
+   * hold it), and it only publishes credentials signed by a key it holds. So the
+   * only issuer the platform can legitimately anchor as is the one the chain
+   * provisioned for itself at boot. Must match the node's CTN_ISSUER_ID.
+   */
+  blockchainIssuerId: env('BLOCKCHAIN_ISSUER_ID', 'securex-issuer'),
+  /**
+   * How long to wait for a submitted transaction to be committed into a block
+   * before reporting the anchor as unconfirmed. The chain produces a block on
+   * its configured interval (5s in production), so this only needs to cover one
+   * or two block intervals.
+   */
+  blockchainAnchorTimeoutMs: Number(env('BLOCKCHAIN_ANCHOR_TIMEOUT_MS', '20000')),
   fraudEngineUrl: env('FRAUD_ENGINE_URL', 'http://localhost:4002/fraud'),
 
   // ── One-time ADMIN bootstrap (server-side CLI only) ───────────────────────

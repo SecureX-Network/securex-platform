@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { all, get, run, transaction } from '../db/database.js';
 import { mapCredentialRow, type CredentialRow } from '../db/mappers.js';
+import { serverConfig } from '../config.js';
 import { requireAuth, requireRole, type AuthenticatedRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { auditFor } from '../services/audit.js';
@@ -14,6 +15,13 @@ import {
 } from '../services/credentialAuthorization.js';
 import { created, fail, ok, param } from '../utils/http.js';
 import { entityId, makeHex, newPublicCredentialId, newTxRef, nowIso } from '../utils/ids.js';
+import {
+  anchorCredential,
+  anchorRevocation,
+  hashCredentialDocument,
+  type AnchorResult,
+} from '../services/credentialAnchor.js';
+import { logger } from '../services/logger.js';
 
 export const credentialsRouter = Router();
 
@@ -28,6 +36,8 @@ const credentialSelect = `
   SELECT c.id, c.credential_id, c.type, c.title, c.description, c.holder_name, c.holder_id,
          c.issuer_id, c.institution_id, c.status, c.issued_at, c.expires_at, c.revoked_at,
          c.revoked_reason, c.tx_hash, c.merkle_root, c.digital_signature, c.template_id, c.metadata_json,
+         c.credential_hash, c.chain_issuer_id, c.chain_tx_id, c.chain_block_height, c.chain_block_hash,
+         c.anchor_status, c.anchor_error,
          k.name AS issuer_name, i.name AS institution_name
   FROM credentials c
   JOIN issuers k ON k.id = c.issuer_id
@@ -251,6 +261,10 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
   }
 
   let issuedRow: ReturnType<typeof mapCredentialRow> | undefined;
+  // Captured inside the transaction, anchored after it commits: the anchor is a
+  // network call and must never be made while holding a database transaction.
+  let anchorDocument: Parameters<typeof hashCredentialDocument>[0] | undefined;
+
   await transaction(async () => {
     const holderId = await resolveHolderId({
       holderId: body.holderId,
@@ -259,18 +273,29 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
     });
 
     // Canonical identities are generated here — never accepted from the client.
-    // NOTE: credentials.tx_hash / merkle_root / digital_signature are intentionally
-    // left NULL. Those columns are meant to hold real ledger anchor evidence and
-    // real signatures; SecureX does not yet produce either, so a placeholder would
-    // be fabricated evidence. They stay NULL until a genuine implementation writes
-    // them, and the public verification DTO never exposes them.
     const id = entityId('cred');
     const credentialId = newPublicCredentialId(Date.now() % 9000);
     const issuedAt = nowIso();
+
+    // The credential document that gets hashed for the ledger. Only this hash
+    // reaches the chain; holder PII and credential text stay on the platform.
+    const credentialHash = hashCredentialDocument({
+      credentialId,
+      type: body.type,
+      title: body.title,
+      description: body.description,
+      holderName: body.holderName,
+      issuerName: issuer.issuerName,
+      institutionName: institution.institutionName,
+      issuedAt,
+      expiresAt,
+    });
+
     await run(
       `INSERT INTO credentials (id, credential_id, type, title, description, holder_name, holder_id,
-         issuer_id, institution_id, status, issued_at, expires_at, template_id, metadata_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?)`,
+         issuer_id, institution_id, status, issued_at, expires_at, template_id, metadata_json,
+         credential_hash, chain_issuer_id, anchor_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, ?, 'PENDING')`,
       id,
       credentialId,
       body.type,
@@ -284,12 +309,16 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
       expiresAt,
       body.templateId ?? null,
       body.metadata ? JSON.stringify(body.metadata) : null,
+      credentialHash,
+      chainIssuerId(),
     );
 
     // Local platform event log (drives the explorer projection). This is a
-    // platform-side record of a real event — it is NOT a blockchain transaction.
-    // `confirmations` stays 0 and status stays PENDING because no chain
-    // confirmation exists for it.
+    // platform-side record of a real event — it is NOT a blockchain block, and it
+    // is deliberately left at PENDING with 0 confirmations forever. The chain's
+    // real block height, block hash and Merkle root live on the credential's
+    // anchor columns and are read from the chain itself. Upgrading this row
+    // would fabricate a second, local version of the chain's history.
     const top = await get<{ max: number | null }>('SELECT MAX(height) AS max FROM blocks');
     const height = (top?.max ?? 0) + 1;
     await run(
@@ -312,11 +341,81 @@ async function createCredentialHandler(req: Request, res: Response): Promise<voi
       details: `institution=${institution.institutionName}; issuer=${issuer.issuerName}; credential=${credentialId}; via web issue flow`,
     });
 
+    anchorDocument = {
+      credentialId,
+      type: body.type,
+      title: body.title,
+      description: body.description,
+      holderName: body.holderName,
+      issuerName: issuer.issuerName,
+      institutionName: institution.institutionName,
+      issuedAt,
+      expiresAt,
+    };
+
     const row = await get<CredentialRow>(`${credentialSelect} WHERE c.id = ?`, id);
     issuedRow = row ? mapCredentialRow(row) : undefined;
   });
 
+  const createdId = issuedRow && 'id' in issuedRow ? String(issuedRow.id) : undefined;
+
+  // ── Anchor on the blockchain ─────────────────────────────────────────────
+  // A chain outage must not fail a legitimate issuance, and it must never be
+  // papered over: the anchor result is persisted verbatim, so public
+  // verification reports UNAVAILABLE or PENDING instead of claiming a proof.
+  if (anchorDocument && createdId) {
+    const hash = hashCredentialDocument(anchorDocument);
+    const anchor = await anchorCredential(anchorDocument, hash);
+    await persistAnchor(createdId, anchor);
+    if (anchor.status === 'ANCHORED') {
+      logger.info('credential.anchored', {
+        credentialId: anchorDocument.credentialId,
+        chainTxId: anchor.chainTxId,
+        blockHeight: anchor.blockHeight,
+        issuerSignatureValid: anchor.issuerSignatureValid,
+      });
+    } else {
+      logger.warn('credential.anchor_incomplete', {
+        credentialId: anchorDocument.credentialId,
+        status: anchor.status,
+        error: anchor.error,
+      });
+    }
+    const row = await get<CredentialRow>(`${credentialSelect} WHERE c.id = ?`, createdId);
+    if (row) issuedRow = mapCredentialRow(row);
+  }
+
   created(res, issuedRow);
+}
+
+/** The on-chain issuer identity this platform anchors under. */
+function chainIssuerId(): string {
+  return serverConfig.blockchainIssuerId;
+}
+
+/**
+ * Write the anchor result exactly as the chain reported it.
+ *
+ * Nothing here is synthesised: a null column means the chain did not tell us
+ * that value. `anchor_error` is a safe summary (the chain client never puts the
+ * service credential in an error message).
+ */
+async function persistAnchor(credentialId: string, anchor: AnchorResult): Promise<void> {
+  await run(
+    `UPDATE credentials SET
+       anchor_status = ?, anchor_error = ?, tx_hash = ?, merkle_root = ?,
+       chain_tx_id = ?, chain_block_height = ?, chain_block_hash = ?, chain_issuer_id = ?
+     WHERE id = ?`,
+    anchor.status,
+    anchor.error,
+    anchor.txHash,
+    anchor.merkleRoot,
+    anchor.chainTxId,
+    anchor.blockHeight,
+    anchor.blockHash,
+    anchor.chainIssuerId,
+    credentialId,
+  );
 }
 
 credentialsRouter.post(
@@ -384,5 +483,35 @@ async function revokeCredentialHandler(req: Request, res: Response): Promise<voi
       details: `institution=${row.institution_name}; credential=${row.credential_id}; role=${auth.user.role}`,
     });
   });
-  ok(res, { message: 'Credential revoked.' });
+
+  // ── Anchor the revocation on-chain ────────────────────────────────────────
+  // The local REVOKED status is authoritative for this platform, but a verifier
+  // reading the chain would still see the credential ACTIVE if this fails, so the
+  // divergence is recorded rather than hidden.
+  const anchor = await anchorRevocation(row.credential_id);
+  await persistAnchor(row.id, anchor);
+  if (anchor.status === 'ANCHORED') {
+    logger.info('credential.revocation_anchored', {
+      credentialId: row.credential_id,
+      chainTxId: anchor.chainTxId,
+      blockHeight: anchor.blockHeight,
+    });
+  } else {
+    logger.warn('credential.revocation_anchor_incomplete', {
+      credentialId: row.credential_id,
+      status: anchor.status,
+      error: anchor.error,
+      hint: 'The credential is REVOKED on the platform but the chain revocation is not confirmed.',
+    });
+  }
+
+  ok(res, {
+    message: 'Credential revoked.',
+    anchor: {
+      status: anchor.status,
+      chainTxId: anchor.chainTxId,
+      blockHeight: anchor.blockHeight,
+      detail: anchor.error ?? 'The revocation is recorded in a blockchain block.',
+    },
+  });
 }

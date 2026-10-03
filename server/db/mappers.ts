@@ -61,6 +61,15 @@ export interface CredentialRow {
   digital_signature: string | null;
   template_id: string | null;
   metadata_json: string | null;
+  // Real ledger-anchor evidence. Null for any credential whose anchor was never
+  // confirmed — never a synthesised value.
+  credential_hash?: string | null;
+  chain_issuer_id?: string | null;
+  chain_tx_id?: string | null;
+  chain_block_height?: number | null;
+  chain_block_hash?: string | null;
+  anchor_status?: string | null;
+  anchor_error?: string | null;
 }
 
 export interface BlockRow {

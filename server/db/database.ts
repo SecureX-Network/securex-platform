@@ -76,6 +76,44 @@ export function describeDatabase(connectionString: string): string {
 export async function applySchema(): Promise<void> {
   const sql = readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
   await getPool().query(sql);
+  await applyMigrations();
+}
+
+/**
+ * Additive, idempotent column migrations.
+ *
+ * schema.sql is all `CREATE TABLE IF NOT EXISTS`, so it cannot add a column to a
+ * table that already exists in a deployed database. These statements are
+ * deliberately separate and each is a no-op once applied, so applySchema() stays
+ * safe to run on every boot.
+ */
+const MIGRATIONS: string[] = [
+  // Real ledger-anchor evidence for credentials (see schema.sql for the column
+  // contract). Added after the first issuance deployment so existing rows are
+  // preserved; their anchor_status stays NULL, which is reported honestly as
+  // "no anchor recorded" rather than as verified.
+  `ALTER TABLE credentials ADD COLUMN IF NOT EXISTS credential_hash TEXT`,
+  `ALTER TABLE credentials ADD COLUMN IF NOT EXISTS chain_issuer_id TEXT`,
+  `ALTER TABLE credentials ADD COLUMN IF NOT EXISTS chain_tx_id TEXT`,
+  `ALTER TABLE credentials ADD COLUMN IF NOT EXISTS chain_block_height INTEGER`,
+  `ALTER TABLE credentials ADD COLUMN IF NOT EXISTS chain_block_hash TEXT`,
+  `ALTER TABLE credentials ADD COLUMN IF NOT EXISTS anchor_status TEXT`,
+  `ALTER TABLE credentials ADD COLUMN IF NOT EXISTS anchor_error TEXT`,
+];
+
+async function applyMigrations(): Promise<void> {
+  for (const statement of MIGRATIONS) {
+    try {
+      await getPool().query(statement);
+    } catch (err) {
+      // A migration must never stop the service from booting. Log it loudly and
+      // continue; the affected feature degrades to its honest unavailable state.
+      logger.error('db.migration_failed', {
+        statement: statement.slice(0, 80),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 }
 
 export async function all<T = Row>(sql: string, ...params: SqlValue[]): Promise<T[]> {

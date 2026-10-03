@@ -29,22 +29,41 @@ import type { CredentialRow } from '../db/mappers.js';
 //
 // TRUTHFULNESS CONTRACT
 // No capability is reported as performed unless it genuinely was:
-//   * `blockchainProof` is always { verified: false, available: false,
-//     status: 'UNVERIFIED' }. SecureX does not submit this credential's anchor
-//     to a blockchain node and has not received a block inclusion proof, so no
-//     transaction hash, block height, or confirmation count can be asserted.
-//   * `signature` is always { verified: false, available: false,
-//     status: 'UNVERIFIED' }. No Ed25519 (or any other) signature verification
-//     is implemented, so no algorithm name and no `valid: true` is asserted.
-//   * `documentIntegrity` (only when the caller supplies a `hash`) reports a real,
-//     performed comparison against the hash reference stored on the platform
-//     record. It is explicitly scoped to the platform record: it is NOT a
-//     blockchain anchor check and NOT a signature check.
+//   * `blockchainProof` is VERIFIED only when the chain returned a committed
+//     inclusion proof for this exact credential id: a block height above zero, a
+//     64-char Merkle root, and the chain's own `verified` flag. Those values are
+//     then reported verbatim. When the anchor is PENDING (submitted, not yet
+//     confirmed) or UNAVAILABLE (the chain could not be reached) the check says
+//     so in those words and reports no hash, height or root.
+//   * `signature` is VERIFIED only when the chain reports
+//     `issuerSignatureValid` for this credential — i.e. the issuance signature
+//     was checked against the issuer's registered on-chain public key. The
+//     signature itself is never exposed.
+//   * `documentIntegrity` (only when the caller supplies a `hash`) compares
+//     against `credentials.credential_hash`, the SHA-256 of the canonical
+//     credential document that was anchored on-chain. It is explicitly scoped:
+//     the caller is told it is a platform-document comparison.
 // ---------------------------------------------------------------------------
 
 export type PublicVerificationStatus = CredentialStatus;
 
 export type CapabilityStatus = 'VERIFIED' | 'UNVERIFIED' | 'NOT_FOUND';
+
+/**
+ * Real ledger evidence, present only when the chain actually returned it.
+ * Every field is chain-derived; nothing is synthesised by this service.
+ */
+export interface PublicBlockchainEvidence {
+  /** The chain transaction id for the anchor. */
+  transactionId: string;
+  transactionHash: string;
+  /** Merkle root of the block containing the anchor. */
+  merkleRoot: string;
+  blockHeight: number;
+  blockHash: string;
+  /** Whether the chain verified the Merkle inclusion path. */
+  inclusionProofVerified: boolean;
+}
 
 export interface PublicCapabilityCheck {
   /** True only if the check actually ran and passed. Never true by default. */
@@ -54,6 +73,8 @@ export interface PublicCapabilityCheck {
   status: CapabilityStatus;
   /** Plain-language statement of exactly what was (and was not) checked. */
   detail: string;
+  /** Real chain evidence. Present only when the chain returned it. */
+  evidence?: PublicBlockchainEvidence;
 }
 
 export type DocumentIntegrityStatus = 'EXACT' | 'TAMPERED' | 'UNVERIFIABLE';
@@ -163,18 +184,146 @@ export interface BuildPublicVerificationInput {
   /** Optional document hash supplied by the caller (64 hex chars). */
   documentHash?: string;
   verifiedAt: string;
+  /** Live chain evidence, or the reason it is unavailable. */
+  chain?: ChainEvidence;
+}
+
+/**
+ * What the chain said about this credential.
+ *
+ * `evidence` is present only when the chain returned a committed inclusion
+ * proof. `reason` explains an unavailability rather than hiding it.
+ *
+ * `onChainRecord: false` is a fourth situation that must not be folded into the
+ * others: the chain answered, and it holds no anchor for this credential. That
+ * is different from "submitted but not yet confirmed" and from "could not be
+ * reached", and reporting it as either would be a false claim.
+ */
+export type ChainEvidence =
+  | {
+      available: true;
+      /** Whether the chain holds any record for this credential. */
+      onChainRecord: boolean;
+      proofVerified: boolean;
+      issuerSignatureValid: boolean;
+      transactionId: string | null;
+      transactionHash: string | null;
+      merkleRoot: string | null;
+      blockHeight: number | null;
+      blockHash: string | null;
+      chainStatus: string | null;
+    }
+  | { available: false; reason: string };
+
+function blockchainProofCheck(chain: ChainEvidence | undefined): PublicCapabilityCheck {
+  if (!chain) {
+    return unavailableCheck(
+      'No blockchain record was returned for this credential, so no ledger proof is claimed.',
+    );
+  }
+  if (!chain.available) {
+    return {
+      verified: false,
+      // The chain integration exists; it could not be reached for this lookup.
+      available: true,
+      status: 'UNVERIFIED',
+      detail: `The blockchain service could not be consulted (${chain.reason}), so no ledger proof is claimed. The platform credential record exists independently of the chain.`,
+    };
+  }
+  if (!chain.onChainRecord) {
+    return {
+      verified: false,
+      available: true,
+      status: 'UNVERIFIED',
+      detail:
+        'The SecureX Blockchain was queried and holds no anchor for this credential, so no ledger proof is claimed. The platform credential record exists independently of the chain.',
+    };
+  }
+  const anchored =
+    chain.proofVerified &&
+    typeof chain.blockHeight === 'number' &&
+    chain.blockHeight > 0 &&
+    typeof chain.merkleRoot === 'string' &&
+    chain.merkleRoot.length === 64;
+
+  if (!anchored || !chain.transactionId || !chain.transactionHash || !chain.blockHash) {
+    return {
+      verified: false,
+      available: true,
+      status: 'UNVERIFIED',
+      detail:
+        'This credential was submitted to the blockchain but no committed block inclusion proof has been confirmed for it yet, so no transaction hash, block height or Merkle root is presented.',
+    };
+  }
+
+  return {
+    verified: true,
+    available: true,
+    status: 'VERIFIED',
+    detail: `The SecureX Blockchain returned a verified Merkle inclusion proof for this credential in block ${chain.blockHeight}. The transaction and Merkle root below are the chain's own values.`,
+    evidence: {
+      transactionId: chain.transactionId,
+      transactionHash: chain.transactionHash,
+      merkleRoot: chain.merkleRoot as string,
+      blockHeight: chain.blockHeight as number,
+      blockHash: chain.blockHash,
+      inclusionProofVerified: chain.proofVerified,
+    },
+  };
+}
+
+function signatureCheck(chain: ChainEvidence | undefined): PublicCapabilityCheck {
+  if (!chain) {
+    return unavailableCheck(
+      'No signature verification was performed, so no signature or algorithm is claimed.',
+    );
+  }
+  if (!chain.available) {
+    return {
+      verified: false,
+      available: true,
+      status: 'UNVERIFIED',
+      detail: `The blockchain service could not be consulted (${chain.reason}), so the issuer signature was not verified.`,
+    };
+  }
+  if (!chain.onChainRecord) {
+    return {
+      verified: false,
+      available: true,
+      status: 'UNVERIFIED',
+      detail:
+        'The SecureX Blockchain holds no anchor for this credential, so no issuance signature was ever checked against an issuer key.',
+    };
+  }
+  if (chain.issuerSignatureValid !== true) {
+    return {
+      verified: false,
+      available: true,
+      status: 'UNVERIFIED',
+      detail:
+        'The blockchain did not confirm the issuing issuer signature for this credential, so no signature is reported as valid.',
+    };
+  }
+  return {
+    verified: true,
+    available: true,
+    status: 'VERIFIED',
+    detail: "The SecureX Blockchain verified this credential's Ed25519 issuance signature against the issuer's registered on-chain public key. The signature and the public key are not disclosed here.",
+  };
 }
 
 /**
  * Build the public verification DTO for a found credential.
  *
- * `documentHash`, when supplied, is compared against the hash reference stored
- * on the platform record. The stored reference itself is NEVER returned.
+ * `documentHash`, when supplied, is compared against the canonical document hash
+ * that was anchored on-chain (`credentials.credential_hash`). Neither the stored
+ * hash nor the stored Merkle root is itself ever returned.
  */
 export function toPublicVerificationDto({
   row,
   documentHash,
   verifiedAt,
+  chain,
 }: BuildPublicVerificationInput): PublicVerificationDto {
   const status = effectiveCredentialStatus(row);
   const storedStatus = normalizeCredentialStatus(row.status);
@@ -195,18 +344,14 @@ export function toPublicVerificationDto({
         status: 'VERIFIED',
         detail: `A credential record with this ID exists in the SecureX Platform. Its authoritative status is ${status}.`,
       },
-      blockchainProof: unavailableCheck(
-        'Blockchain anchoring is not verified. SecureX has not obtained a block inclusion proof for this credential, so no transaction hash, block height, or confirmation count is presented.',
-      ),
-      signature: unavailableCheck(
-        'Cryptographic signature verification is not implemented. No signature algorithm is claimed and no signature is reported as valid.',
-      ),
+      blockchainProof: blockchainProofCheck(chain),
+      signature: signatureCheck(chain),
     },
     message: messageForStatus(status),
   };
 
   if (documentHash) {
-    const anchoredHash = row.merkle_root;
+    const anchoredHash = row.credential_hash;
     const comparable = anchoredHash != null && anchoredHash.trim() !== '';
     const hashMatch =
       comparable && documentHash.toLowerCase() === String(anchoredHash).toLowerCase();
@@ -218,17 +363,17 @@ export function toPublicVerificationDto({
       status: !comparable ? 'UNVERIFIABLE' : hashMatch ? 'EXACT' : 'TAMPERED',
       scope: 'PLATFORM_RECORD',
       detail: !comparable
-        ? 'This credential record stores no document hash reference, so integrity cannot be compared.'
+        ? 'This credential record stores no anchored document hash, so integrity cannot be compared.'
         : hashMatch
-          ? 'The supplied hash matches the document hash reference stored on this SecureX Platform record. This is a platform-record comparison, not a blockchain or signature proof.'
-          : 'The supplied hash does not match the document hash reference stored on this SecureX Platform record. The document may differ from the recorded version.',
+          ? 'The supplied hash matches the canonical credential-document hash anchored for this SecureX Platform record. This is a document comparison, not a signature proof.'
+          : 'The supplied hash does not match the canonical credential-document hash anchored for this SecureX Platform record. The document may differ from the recorded version.',
       verifiedAt,
     };
 
     if (!hashMatch) {
       dto.message = comparable
-        ? 'The supplied document hash does not match the hash reference stored on this credential record.'
-        : 'This credential record stores no document hash reference, so document integrity could not be compared.';
+        ? 'The supplied document hash does not match the anchored hash for this credential record.'
+        : 'This credential record stores no anchored document hash, so document integrity could not be compared.';
     }
   }
 

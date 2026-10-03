@@ -103,7 +103,27 @@ CREATE TABLE IF NOT EXISTS credentials (
   merkle_root         TEXT,
   digital_signature   TEXT,
   template_id         TEXT,
-  metadata_json       TEXT
+  metadata_json       TEXT,
+  -- Real ledger-anchor evidence. Every column here is written ONLY from an actual
+  -- response returned by the blockchain service; none is ever synthesised.
+  --   credential_hash  : SHA-256 of the canonical credential document. This is the
+  --                     only credential content that reaches the chain — the rest
+  --                     of the document stays off-chain.
+  --   chain_issuer_id  : the on-chain issuer identity that signed the anchor.
+  --   chain_tx_id      : the chain transaction id (tx_hash holds its hash).
+  --   anchor_status    : ANCHORED | PENDING | UNAVAILABLE. Distinguishes "we
+  --                     anchored it and have proof" from "the chain was
+  --                     unreachable", so a missing anchor is never reported as
+  --                     verified and an existing anchor is never downgraded
+  --                     because the chain was briefly down.
+  --   anchor_error     : safe failure summary when anchor_status is UNAVAILABLE.
+  credential_hash     TEXT,
+  chain_issuer_id     TEXT,
+  chain_tx_id         TEXT,
+  chain_block_height  INTEGER,
+  chain_block_hash    TEXT,
+  anchor_status       TEXT CHECK (anchor_status IN ('ANCHORED','PENDING','UNAVAILABLE')),
+  anchor_error        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_credentials_holder ON credentials (holder_id);

@@ -233,10 +233,15 @@ describe('SecureX Platform API integration', () => {
     assert.equal(res.body.data.credentialId, 'SX-2F9C-A41B-8D7E');
     assert.equal(res.body.data.issuerName, 'Stanford University');
     assert.equal(res.body.data.checks.credentialRecord.verified, true);
-    // No blockchain proof is claimed: the capability is reported as unavailable.
+    // No blockchain proof is claimed. In this suite no chain credential is
+    // configured, so the integration exists but is unreachable: it reports
+    // `available: true, verified: false` and explains why, rather than claiming
+    // a capability that does not exist. Crucially it exposes no evidence.
     assert.equal(res.body.data.checks.blockchainProof.verified, false);
-    assert.equal(res.body.data.checks.blockchainProof.available, false);
-    assert.equal(res.body.data.checks.signature.available, false);
+    assert.equal(res.body.data.checks.blockchainProof.available, true);
+    assert.equal(res.body.data.checks.blockchainProof.evidence, undefined);
+    assert.equal(res.body.data.checks.signature.verified, false);
+    assert.equal(res.body.data.checks.signature.available, true);
     // The public DTO exposes no internal credential record and no holder data.
     assert.equal('credential' in res.body.data, false);
     assert.equal('holderId' in res.body.data, false);
@@ -278,13 +283,19 @@ describe('SecureX Platform API integration', () => {
   });
 
   test('verifications with a matching document hash report EXACT', async () => {
-    const { data } = await login('admin@securex.io');
-    const cred = await request(app)
-      .get('/api/credentials/SX-2F9C-A41B-8D7E')
-      .set(bearer(data.token));
-    const storedReference = cred.body.data.merkleRoot as string;
+    // The document hash compared here is the canonical credential-document hash
+    // that is anchored on-chain (`credentials.credential_hash`) — NOT the Merkle
+    // root, which is a property of the containing block rather than of the
+    // document. Seed a known value so the comparison is deterministic.
+    const known = 'a'.repeat(64);
+    await database.run(
+      `UPDATE credentials SET credential_hash = ? WHERE credential_id = ?`,
+      known,
+      'SX-2F9C-A41B-8D7E',
+    );
+
     const res = await request(app)
-      .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${storedReference}`);
+      .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${known}`);
     assert.equal(res.status, 200);
     const integrity = res.body.data.checks.documentIntegrity;
     assert.equal(integrity.status, 'EXACT');
@@ -292,7 +303,7 @@ describe('SecureX Platform API integration', () => {
     assert.equal(integrity.scope, 'PLATFORM_RECORD');
     // The stored reference itself is never returned by the public endpoint.
     assert.equal('anchoredHash' in integrity, false);
-    // A signature was never verified, so none is reported as valid.
+    // No chain was consulted, so no signature is reported as valid.
     assert.equal(res.body.data.checks.signature.verified, false);
   });
 
@@ -307,7 +318,7 @@ describe('SecureX Platform API integration', () => {
     // document mismatch is reported as a document-integrity result, not as a
     // fabricated ledger or signature finding.
     assert.equal(res.body.data.checks.credentialRecord.verified, true);
-    assert.equal(res.body.data.checks.signature.available, false);
+    assert.equal(res.body.data.checks.signature.verified, false);
   });
 
   test('verifications reject a malformed document hash', async () => {
@@ -464,11 +475,42 @@ describe('SecureX Platform API integration', () => {
     assert.equal(verify.body.data.credentialId, issuedId);
     assert.equal(verify.body.data.issuerName, 'Stanford University');
     assert.equal(verify.body.data.checks.credentialRecord.verified, true);
-    // The issuance is NOT reported as a blockchain proof: no inclusion proof
-    // exists, so the capability is reported as unavailable instead.
+    // Issuance is NOT reported as a blockchain proof. The chain write was
+    // attempted server-side and, with no chain credential configured here, it
+    // was recorded as UNAVAILABLE — which the public surface reports as an
+    // unverified integration, never as a fabricated proof.
     assert.equal(verify.body.data.checks.blockchainProof.verified, false);
-    assert.equal(verify.body.data.checks.blockchainProof.available, false);
+    assert.equal(verify.body.data.checks.blockchainProof.available, true);
+    assert.equal(verify.body.data.checks.signature.verified, false);
     assert.equal('txHash' in verify.body.data.checks.blockchainProof, false);
+
+    // The attempt was recorded against the credential row as UNAVAILABLE with a
+    // reason, so operators can tell "never anchored" from "anchored, cannot be
+    // proven right now" without inspecting logs.
+    const row = await database.get<{ anchor_status: string | null; anchor_error: string | null; credential_hash: string | null }>(
+      `SELECT anchor_status, anchor_error, credential_hash FROM credentials WHERE credential_id = ?`,
+      issuedId,
+    );
+    assert.equal(row?.anchor_status, 'UNAVAILABLE');
+    assert.ok(row?.anchor_error, 'an unavailable anchor must record why');
+    assert.match(row?.credential_hash ?? '', /^[0-9a-f]{64}$/, 'issuance always records the document hash');
+  });
+
+  test('verifications report document integrity as unverifiable when no hash is stored', async () => {
+    // A credential with no anchored document hash must NOT be reported as an
+    // exact match. "No reference recorded" and "matches" are different claims,
+    // so the check reports UNVERIFIABLE instead of inventing a comparison.
+    await database.run(
+      `UPDATE credentials SET credential_hash = NULL WHERE credential_id = ?`,
+      'SX-2F9C-A41B-8D7E',
+    );
+    const res = await request(app)
+      .get(`/api/verifications?credentialId=SX-2F9C-A41B-8D7E&hash=${'a'.repeat(64)}`);
+    assert.equal(res.status, 200);
+    const integrity = res.body.data.checks.documentIntegrity;
+    assert.equal(integrity.status, 'UNVERIFIABLE');
+    assert.equal(integrity.hashMatch, false);
+    assert.match(integrity.detail, /no anchored document hash/i);
   });
 
   test('a cross-tenant lifecycle transition is refused as not found', async () => {

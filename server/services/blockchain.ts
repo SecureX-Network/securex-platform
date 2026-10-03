@@ -491,6 +491,57 @@ export interface ApiTransactionSubmission extends ApiMutationReceipt {
   type?: string;
   sender?: string;
   nonce?: number;
+  /**
+   * True when the transaction was signed by the ISSUER's key rather than the
+   * node's validator key. Only an issuer-signed issuance can produce a
+   * credential that verifies against the issuer's registered public key, so
+   * this is recorded rather than assumed.
+   */
+  issuerSigned?: boolean;
+}
+
+/**
+ * Inclusion proof for one credential, as returned by the chain's public
+ * `GET /evidence/:id`. Every field is chain-derived; nothing here is computed
+ * by this platform.
+ */
+export interface ApiInclusionProof {
+  transactionId: string;
+  transactionHash: string;
+  leafHash: string;
+  leafIndex: number;
+  proof: string[];
+  merkleRoot: string;
+  blockHeight: number;
+  blockHash: string;
+  blockPreviousHash: string;
+  blockTimestamp: string;
+  blockProposer: string;
+  verified: boolean;
+}
+
+export interface ApiChainIssuerRef {
+  issuerId: string;
+  name: string;
+  status: string;
+}
+
+export interface ApiEvidenceVerification {
+  status: string;
+  credentialId: string;
+  credentialHash: string;
+  issuer: ApiChainIssuerRef;
+  lifecycle: { issuedAt: string; lastUpdated: string; version: string };
+  proof: ApiInclusionProof | null;
+  issuerSignatureValid: boolean;
+  keyStatus: string;
+  protocolCompatible: boolean;
+  verifiedAt: string;
+}
+
+export interface ApiCredentialEvidence {
+  available: boolean;
+  verification: ApiEvidenceVerification;
 }
 
 // ---------------------------------------------------------------------------
@@ -568,6 +619,47 @@ export const blockchainClient = {
       path: `/issuers/${encode(issuerId)}`,
       body: input,
     }),
+
+  /**
+   * Anchor a credential.
+   *
+   * `credentialHash` is the ONLY credential content that reaches the chain — the
+   * chain stores hashes, never personal data. `issuerId` must be the on-chain
+   * issuer whose key the chain custodies; the chain signs with that key and the
+   * receipt reports whether it actually did.
+   */
+  createCredential: (input: {
+    credentialId: string;
+    issuerId: string;
+    credentialHash: string;
+    schemaVersion?: string;
+    metadata?: Record<string, unknown>;
+  }) =>
+    request<ApiTransactionSubmission>({
+      method: 'POST',
+      path: '/credentials',
+      body: input,
+      timeoutMs: serverConfig.blockchainTimeoutMs,
+    }),
+
+  revokeCredential: (credentialId: string, reason: string) =>
+    request<ApiTransactionSubmission>({
+      method: 'POST',
+      path: `/credentials/${encode(credentialId)}/revoke`,
+      body: { reason },
+      timeoutMs: serverConfig.blockchainTimeoutMs,
+    }),
+
+  /**
+   * Read the chain's inclusion proof for a credential. This is a READ of public
+   * ledger data (transaction hash, Merkle path, block header) — it exposes no
+   * key material and nothing that the public block endpoints do not already
+   * reveal, so it is served by the chain's public evidence route and works with
+   * whatever role the platform credential holds.
+   */
+  credentialEvidence: (credentialId: string) =>
+    request<ApiCredentialEvidence>({ path: `/evidence/${encode(credentialId)}` }),
+
   submitTransaction: (transaction: unknown) =>
     request<ApiTransactionSubmission>({
       method: 'POST',
