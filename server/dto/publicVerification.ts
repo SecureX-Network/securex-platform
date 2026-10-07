@@ -3,6 +3,7 @@ import {
   normalizeCredentialStatus,
   type CredentialStatus,
 } from '../services/credentialStatus.js';
+import { isMerkleRoot } from '../utils/merkle.js';
 import type { CredentialRow } from '../db/mappers.js';
 
 // ---------------------------------------------------------------------------
@@ -243,8 +244,7 @@ function blockchainProofCheck(chain: ChainEvidence | undefined): PublicCapabilit
     chain.proofVerified &&
     typeof chain.blockHeight === 'number' &&
     chain.blockHeight > 0 &&
-    typeof chain.merkleRoot === 'string' &&
-    chain.merkleRoot.length === 64;
+    isMerkleRoot(chain.merkleRoot);
 
   if (!anchored || !chain.transactionId || !chain.transactionHash || !chain.blockHash) {
     return {

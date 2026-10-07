@@ -6,6 +6,7 @@ import {
   type ApiCredentialEvidence,
   type ApiTransactionSubmission,
 } from './blockchain.js';
+import { isMerkleRoot } from '../utils/merkle.js';
 
 // ---------------------------------------------------------------------------
 // CREDENTIAL ANCHORING
@@ -186,8 +187,7 @@ function fromEvidence(
     typeof proof.blockHeight === 'number' &&
     proof.blockHeight > 0 &&
     proof.verified === true &&
-    typeof proof.merkleRoot === 'string' &&
-    proof.merkleRoot.length === 64;
+    isMerkleRoot(proof.merkleRoot);
 
   if (!anchored) {
     return {

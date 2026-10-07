@@ -101,6 +101,24 @@ describe('public verification: an anchored, issuer-signed credential', () => {
   });
 });
 
+describe('public verification: a version-1 single-transaction block', () => {
+  // `computeMerkleRoot` seeds version-1 blocks with `tx.id`, and
+  // `MerkleTree.getRoot` returns the sole leaf unchanged, so such a block roots
+  // to its transaction id: 32 hex characters rather than 64.
+  it('reports the proof verified when the root is 32 hex characters', () => {
+    const root = '216a04a4f336bf37883027e0ed6ef092';
+    const dto = toPublicVerificationDto({
+      row: anchoredRow(),
+      verifiedAt: VERIFIED_AT,
+      chain: { ...ANCHORED_EVIDENCE, merkleRoot: root },
+    });
+
+    assert.equal(dto.checks.blockchainProof.verified, true);
+    assert.equal(dto.checks.blockchainProof.status, 'VERIFIED');
+    assert.equal(dto.checks.blockchainProof.evidence?.merkleRoot, root);
+  });
+});
+
 describe('public verification: the chain will not confirm the proof', () => {
   // Each of these is a case where a naive implementation would report VERIFIED.
   // The DTO must not: an unverified chain answer is never upgraded locally.

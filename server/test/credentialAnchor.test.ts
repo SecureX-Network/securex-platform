@@ -200,6 +200,31 @@ describe('anchorCredential', () => {
     assert.ok(!JSON.stringify(body).includes('Master of Secure Systems'));
   });
 
+  it('accepts a version-1 single-transaction block root, which is 32 hex characters', async () => {
+    // `computeMerkleRoot` seeds version-1 blocks with `tx.id`, and
+    // `MerkleTree.getRoot` returns the sole leaf unchanged, so a version-1 block
+    // holding one transaction roots to that transaction id: 32 characters.
+    // Demanding 64 here reported a committed production anchor as PENDING
+    // forever, so both widths must be accepted.
+    const root = '216a04a4f336bf37883027e0ed6ef092';
+    stubFetch({
+      '/credentials': () => jsonResponse(202, SUBMISSION),
+      [`/evidence/${encodeURIComponent(CREDENTIAL.credentialId)}`]: () =>
+        jsonResponse(
+          200,
+          evidence({ proof: { ...evidence().verification.proof, merkleRoot: root, blockVersion: 1 } }),
+        ),
+    });
+
+    const result = await anchorCredential(CREDENTIAL, hashCredentialDocument(CREDENTIAL));
+
+    assert.equal(result.status, 'ANCHORED');
+    assert.equal(result.merkleRoot, root);
+    assert.equal(result.blockHeight, 3);
+    assert.equal(result.proofVerified, true);
+    assert.equal(result.error, null);
+  });
+
   it('reports PENDING, not ANCHORED, while the proof is unverified', async () => {
     stubFetch({
       '/credentials': () => jsonResponse(202, SUBMISSION),
